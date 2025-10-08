@@ -1,0 +1,17 @@
+[project]
+name = "hearingloss"
+version = "0.1.0"
+description = "KI-based speech recognition as a method for investigating hearing loss"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Add your dependencies here
+    # Example: "numpy>=1.24.0",
+    # Example: "torch>=2.0.0",
+    # Example: "librosa>=0.10.0",
+]
+
+[tool.uv]
+package = false  # This is a script/application project, not a library
+
+[tool.uv.sources]
