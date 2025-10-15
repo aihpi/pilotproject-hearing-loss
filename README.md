@@ -82,3 +82,12 @@ python scripts/download_commonvoice.py --output-dir /path/to/custom/location
 # Use different CommonVoice version (if needed)
 python scripts/download_commonvoice.py --version mozilla-foundation/common_voice_17_0
 ```
+
+#### Test the Dataset
+
+After downloading, test that the dataset loads correctly:
+
+```bash
+# Test loading the downloaded dataset
+cd tmp && python test_load_commonvoice.py
+```

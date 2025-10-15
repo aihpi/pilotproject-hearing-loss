@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-Download CommonVoice Germa    logger.info("Starting download of CommonVoice English dataset...")
-    logger.info(f"Output directory: {output_path.absolute()}")
-    logger.info(f"Streaming mode: {streaming}")ataset from HuggingFace.
+Download CommonVoice English dataset from HuggingFace.
 
-This script downloads the CommonVoice German dataset and stores it in the
-data/CommonVoiceDE directory for use in hearing loss research.
+This script downloads the CommonVoice English dataset and stores it in the
+data/CommonVoiceEN directory for use in hearing loss research.
 """
 
 import os
@@ -53,7 +51,7 @@ def download_commonvoice_english(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    logger.info(f"Starting download of CommonVoice German dataset...")
+    logger.info("Starting download of CommonVoice English dataset...")
     logger.info(f"Output directory: {output_path.absolute()}")
     logger.info(f"Streaming mode: {streaming}")
     
