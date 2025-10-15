@@ -46,8 +46,11 @@ uv.lock
 *.ipynb
 
 # Data files
-data_original/
+data/
 cv-corpus-22.0*
+
+# Temporary files
+tmp/
 
 # Environment variables
 .env

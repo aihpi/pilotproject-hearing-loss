@@ -5,10 +5,11 @@ description = "KI-based speech recognition as a method for investigating hearing
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    # Add your dependencies here
-    # Example: "numpy>=1.24.0",
-    # Example: "torch>=2.0.0",
-    # Example: "librosa>=0.10.0",
+    "datasets==3.6.0",         # HuggingFace datasets library (downgraded for script compatibility)
+    "librosa>=0.10.0",         # Audio processing
+    "soundfile>=0.12.0",       # Audio file I/O
+    "torch>=2.0.0",            # For tensor operations
+    "huggingface-hub>=0.16.0", # HuggingFace Hub client
 ]
 
 [tool.uv]
