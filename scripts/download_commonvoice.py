@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-Download CommonVoice German dataset from HuggingFace.
+Download CommonVoice Germa    logger.info("Starting download of CommonVoice English dataset...")
+    logger.info(f"Output directory: {output_path.absolute()}")
+    logger.info(f"Streaming mode: {streaming}")ataset from HuggingFace.
 
 This script downloads the CommonVoice German dataset and stores it in the
 data/CommonVoiceDE directory for use in hearing loss research.
@@ -21,15 +23,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def download_commonvoice_german(
-    output_dir: str = "data/CommonVoiceDE",
+def download_commonvoice_english(
+    output_dir: str = "data/CommonVoiceEN",
     version: str = "mozilla-foundation/common_voice_16_1",
     streaming: bool = False,
     splits: Optional[List[str]] = None,
     token: Optional[str] = None
 ):
     """
-    Download CommonVoice German dataset.
+    Download CommonVoice English dataset.
     
     Args:
         output_dir (str): Directory to store the dataset
@@ -60,7 +62,7 @@ def download_commonvoice_german(
             logger.info("Loading dataset in streaming mode...")
             dataset = load_dataset(
                 version,
-                "de",  # German language code
+                "en",  # English language code
                 streaming=True,
                 trust_remote_code=True
             )
@@ -85,7 +87,7 @@ def download_commonvoice_german(
                 # Download all splits
                 dataset = load_dataset(
                     version,
-                    "de",  # German language code
+                    "en",  # English language code
                     cache_dir=str(cache_dir),
                     trust_remote_code=True
                 )
@@ -96,7 +98,7 @@ def download_commonvoice_german(
                     logger.info(f"Downloading split: {split}")
                     dataset[split] = load_dataset(
                         version,
-                        "de",
+                        "en",
                         split=split,
                         cache_dir=str(cache_dir),
                         trust_remote_code=True
@@ -118,10 +120,10 @@ def download_commonvoice_german(
         # Save dataset info
         info_file = output_path / "dataset_info.txt"
         with open(info_file, 'w') as f:
-            f.write(f"CommonVoice German Dataset\n")
+            f.write(f"CommonVoice English Dataset\n")
             f.write(f"========================\n\n")
             f.write(f"Version: {version}\n")
-            f.write(f"Language: German (de)\n")
+            f.write(f"Language: English (en)\n")
             f.write(f"Streaming mode: {streaming}\n")
             f.write(f"Download date: {__import__('datetime').datetime.now()}\n\n")
             
@@ -145,11 +147,11 @@ def main():
     """Main function to handle command line execution."""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Download CommonVoice German dataset")
+    parser = argparse.ArgumentParser(description="Download CommonVoice English dataset")
     parser.add_argument(
         "--output-dir", 
-        default="data/CommonVoiceDE",
-        help="Output directory for the dataset (default: data/CommonVoiceDE)"
+        default="data/CommonVoiceEN",
+        help="Output directory for the dataset (default: data/CommonVoiceEN)"
     )
     parser.add_argument(
         "--streaming", 
@@ -175,7 +177,7 @@ def main():
     args = parser.parse_args()
     
     # Download the dataset
-    dataset = download_commonvoice_german(
+    dataset = download_commonvoice_english(
         output_dir=args.output_dir,
         version=args.version,
         streaming=args.streaming,

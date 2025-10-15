@@ -39,9 +39,9 @@ Create a folder where the data will be stored. Because the amount of data is rel
 mkdir data
 ```
 
-### CommonVoice German Dataset
+### CommonVoice English Dataset
 
-This project uses the CommonVoice German dataset from HuggingFace. **Note: This dataset requires HuggingFace authentication.**
+This project uses the CommonVoice English dataset from HuggingFace. **Note: This dataset requires HuggingFace authentication.**
 
 #### Setup Authentication
 
@@ -60,7 +60,7 @@ python scripts/download_commonvoice.py
 python scripts/download_commonvoice.py --token "your_token_here"
 ```
 
-This will download the dataset to `data/CommonVoiceDE/` by default.
+This will download the dataset to `data/CommonVoiceEN/` by default.
 
 #### Download Options
 
