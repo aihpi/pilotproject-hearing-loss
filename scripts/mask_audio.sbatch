@@ -10,7 +10,7 @@
 #SBATCH --qos=aisc                          # QOS for AISC
 #SBATCH --nodes=1                           # Single node job
 #SBATCH --cpus-per-task=64                  # 64 CPU cores (default num_workers)
-#SBATCH --mem=512G                          # 512GB memory for large dataset processing
+#SBATCH --mem=1024G                         # 1024GB memory for large dataset processing
 #SBATCH --time=48:00:00                     # 48 hours (2 days)
 #SBATCH --constraint=ARCH:X86               # X86 architecture constraint
 #SBATCH --output=logs/mask_audio_%j.out

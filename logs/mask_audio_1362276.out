@@ -53,3 +53,45 @@ Command: python scripts/mask_audio.py --input-dir data/CommonVoiceEN --sample-ra
 2025-10-16 16:56:33,885 - INFO - Setting up output dataset structures...
 2025-10-16 16:56:33,885 - INFO - Copying dataset structure files...
 2025-10-16 16:56:35,022 - INFO - Copying 1 metadata files for normal...
+2025-10-16 16:56:36,131 - INFO - Copying 1 metadata files for lfloss...
+2025-10-16 16:56:37,236 - INFO - Copying 1 metadata files for hfloss...
+2025-10-16 16:56:37,244 - INFO - Dataset structure setup completed
+2025-10-16 16:56:37,244 - INFO - Hearing loss profiles:
+2025-10-16 16:56:37,245 - INFO -   normal: {np.int64(125): np.float32(10.0), np.int64(250): np.float32(10.0), np.int64(500): np.float32(10.0), np.int64(1000): np.float32(10.0), np.int64(2000): np.float32(10.0), np.int64(4000): np.float32(10.0), np.int64(8000): np.float32(10.0)}
+2025-10-16 16:56:37,245 - INFO -   lfloss: {np.int64(125): np.float32(100.0), np.int64(250): np.float32(85.0), np.int64(500): np.float32(70.0), np.int64(1000): np.float32(55.0), np.int64(2000): np.float32(40.0), np.int64(4000): np.float32(25.0), np.int64(8000): np.float32(10.0)}
+2025-10-16 16:56:37,245 - INFO -   hfloss: {np.int64(125): np.float32(10.0), np.int64(250): np.float32(25.0), np.int64(500): np.float32(40.0), np.int64(1000): np.float32(55.0), np.int64(2000): np.float32(70.0), np.int64(4000): np.float32(85.0), np.int64(8000): np.float32(100.0)}
+2025-10-16 16:56:37,245 - INFO - 
+=== Processing split: train (1,090,061 samples) ===
+2025-10-16 16:56:37,247 - INFO - Processing 1090061 samples in batches of 128 using 64 workers
+2025-10-16 16:56:37,247 - INFO - Processing chunk 1/110: samples 0-9999
+2025-10-16 16:59:47,907 - WARNING - High memory usage: 46016.4 MB
+2025-10-16 16:59:47,907 - INFO - Processing chunk 2/110: samples 10000-19999
+2025-10-16 17:03:19,093 - WARNING - High memory usage: 69473.8 MB
+2025-10-16 17:03:19,093 - INFO - Processing chunk 3/110: samples 20000-29999
+2025-10-16 17:07:21,922 - WARNING - High memory usage: 91986.7 MB
+2025-10-16 17:07:21,922 - INFO - Processing chunk 4/110: samples 30000-39999
+2025-10-16 17:11:41,872 - WARNING - High memory usage: 114696.9 MB
+2025-10-16 17:11:41,873 - INFO - Processing chunk 5/110: samples 40000-49999
+2025-10-16 17:16:24,106 - INFO - Saving intermediate results (50000 samples)
+2025-10-16 17:22:07,883 - INFO - Saved 50000 total samples to data/CommonVoiceEN_normal/dataset/train
+2025-10-16 17:27:58,403 - INFO - Saved 50000 total samples to data/CommonVoiceEN_lfloss/dataset/train
+2025-10-16 17:33:43,436 - INFO - Saved 50000 total samples to data/CommonVoiceEN_hfloss/dataset/train
+2025-10-16 17:33:43,745 - WARNING - High memory usage: 178596.1 MB
+2025-10-16 17:33:43,745 - INFO - Processing chunk 6/110: samples 50000-59999
+2025-10-16 17:40:19,300 - WARNING - High memory usage: 182604.7 MB
+2025-10-16 17:40:19,301 - INFO - Processing chunk 7/110: samples 60000-69999
+2025-10-16 17:46:11,964 - WARNING - High memory usage: 182604.2 MB
+2025-10-16 17:46:11,965 - INFO - Processing chunk 8/110: samples 70000-79999
+2025-10-16 17:52:32,034 - WARNING - High memory usage: 182617.5 MB
+2025-10-16 17:52:32,035 - INFO - Processing chunk 9/110: samples 80000-89999
+2025-10-16 17:58:53,452 - WARNING - High memory usage: 199139.5 MB
+2025-10-16 17:58:53,453 - INFO - Processing chunk 10/110: samples 90000-99999
+2025-10-16 18:04:32,835 - INFO - Saving intermediate results (50000 samples)
+===========================================
+Processing completed at Thu Oct 16 18:33:39 CEST 2025
+Total runtime: 1h 37m 9s
+Exit code: 137
+❌ Audio masking failed with exit code 137
+Check the error log for details: logs/mask_audio_1362276.err
+===========================================
+Job completed at Thu Oct 16 18:33:39 CEST 2025

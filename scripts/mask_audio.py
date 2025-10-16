@@ -291,7 +291,7 @@ def process_split_in_batches(
     processed_count = 0
     
     # Process in smaller chunks to manage memory
-    chunk_size = min(10000, total_samples)  # Process max 10k samples at a time
+    chunk_size = min(5000, total_samples)  # Process max 5k samples at a time to reduce memory usage
     
     start_time = time.time()
     
@@ -300,6 +300,16 @@ def process_split_in_batches(
         chunk_samples = chunk_end - chunk_start
         
         logger.info(f"Processing chunk {chunk_start//chunk_size + 1}/{(total_samples-1)//chunk_size + 1}: samples {chunk_start}-{chunk_end-1}")
+        
+        # Monitor memory before processing chunk
+        memory_mb = monitor_memory_usage()
+        if memory_mb > 900000:  # 900GB warning threshold
+            logger.warning(f"Memory usage very high ({memory_mb/1024:.1f} GB) - forcing cleanup")
+            cleanup_memory()
+            memory_mb = monitor_memory_usage()
+            if memory_mb > 950000:  # 950GB critical threshold
+                logger.error(f"Critical memory usage ({memory_mb/1024:.1f} GB) - stopping to prevent OOM")
+                raise MemoryError("Critical memory usage detected")
         
         # Prepare batches for this chunk
         batches = []
@@ -337,7 +347,7 @@ def process_split_in_batches(
         processed_count += chunk_samples
         
         # Save incrementally every few chunks to avoid memory buildup
-        if len(temp_results[list(hearing_profiles.keys())[0]]) >= 50000 or chunk_end == total_samples:
+        if len(temp_results[list(hearing_profiles.keys())[0]]) >= 25000 or chunk_end == total_samples:
             logger.info(f"Saving intermediate results ({len(temp_results[list(hearing_profiles.keys())[0]])} samples)")
             
             for condition, processed_samples in temp_results.items():
@@ -360,14 +370,32 @@ def process_split_in_batches(
                     dataset.save_to_disk(output_path)
                     logger.info(f"Saved {len(all_samples)} total samples to {output_path}")
             
-            # Clear temporary results to free memory
-            temp_results = {condition: [] for condition in hearing_profiles.keys()}
-            cleanup_memory()
+        # Clear temporary results to free memory
+        temp_results = {condition: [] for condition in hearing_profiles.keys()}
+        cleanup_memory()
         
-        # Monitor memory usage
-        memory_mb = monitor_memory_usage()
-        if memory_mb > 0:
-            logger.debug(f"Memory usage after chunk: {memory_mb:.1f} MB")
+        # Additional aggressive cleanup between chunks
+        import gc
+        import ctypes
+        
+        # Force multiple garbage collection cycles
+        for _ in range(3):
+            gc.collect()
+        
+        # Try to return memory to the OS (Linux-specific)
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6")
+            libc.malloc_trim(0)
+        except Exception:
+            pass  # Not available on all systems
+        
+        logger.info("Memory cleanup completed between chunks")
+    
+    # Monitor memory usage
+    memory_mb = monitor_memory_usage()
+    if memory_mb > 0:
+        logger.debug(f"Memory usage after chunk: {memory_mb:.1f} MB")
     
     elapsed_time = time.time() - start_time
     avg_speed = total_samples / elapsed_time
@@ -392,8 +420,31 @@ def save_processed_dataset(datasets: Dict[str, DatasetDict], output_dirs: Dict[s
 
 
 def cleanup_memory() -> None:
-    """Force garbage collection to free memory."""
-    gc.collect()
+    """Force aggressive garbage collection to free memory."""
+    import gc
+    import ctypes
+    
+    # Force multiple garbage collection cycles
+    for _ in range(3):
+        collected = gc.collect()
+        if collected > 0:
+            logger.debug(f"Garbage collector freed {collected} objects")
+    
+    # Try to return memory to the OS (Linux-specific)
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+        logger.debug("Memory trim attempted")
+    except Exception as e:
+        logger.debug(f"Memory trim not available: {e}")
+    
+    # Optional: clear numpy cache if available
+    try:
+        import numpy as np
+        if hasattr(np, 'clear_cache'):
+            np.clear_cache()
+    except Exception:
+        pass
 
 
 def monitor_memory_usage() -> float:
@@ -413,12 +464,12 @@ def monitor_memory_usage() -> float:
         total_mb = system_memory.total / 1024 / 1024
         available_mb = system_memory.available / 1024 / 1024
         
-        # Warn if memory usage is getting high
-        if memory_mb > 32000:  # 32GB
-            logger.warning(f"High memory usage: {memory_mb:.1f} MB")
+        # Warn if memory usage is getting high (adjusted for 1TB system)
+        if memory_mb > 512000:  # 512GB
+            logger.warning(f"High memory usage: {memory_mb/1024:.1f} GB")
         
-        if available_mb < 8000:  # Less than 8GB available
-            logger.warning(f"Low system memory available: {available_mb:.1f} MB")
+        if available_mb < 51200:  # Less than 50GB available
+            logger.warning(f"Low system memory available: {available_mb/1024:.1f} GB")
         
         return memory_mb
     except ImportError:
@@ -546,6 +597,12 @@ def process_dataset(
         
         logger.info(f"✅ Completed split: {split_name} ({split_time:.1f}s)")
         logger.info(f"📊 Overall progress: {processed_samples:,}/{total_samples:,} ({progress_pct:.1f}%) in {overall_time:.1f}s")
+        
+        # Aggressive cleanup after each split
+        cleanup_memory()
+        memory_mb = monitor_memory_usage()
+        if memory_mb > 0:
+            logger.info(f"Memory usage after split cleanup: {memory_mb:.1f} MB")
         
         if processed_samples < total_samples:
             remaining_samples = total_samples - processed_samples
