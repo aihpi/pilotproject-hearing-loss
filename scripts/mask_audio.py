@@ -286,12 +286,6 @@ def process_split_in_batches(
     total_samples = len(split_data)
     logger.info(f"Processing {total_samples} samples in batches of {batch_size} using {num_workers} workers")
     
-    # For very large datasets, reduce workers to prevent memory issues
-    if total_samples > 500000 and num_workers > 8:
-        original_workers = num_workers
-        num_workers = min(8, num_workers)
-        logger.warning(f"Large dataset detected! Reducing workers from {original_workers} to {num_workers} to prevent memory issues")
-    
     # Initialize results storage for each condition (save incrementally to avoid memory buildup)
     temp_results = {condition: [] for condition in hearing_profiles.keys()}
     processed_count = 0
@@ -487,19 +481,13 @@ def process_dataset(
     if initial_memory > 0:
         logger.info(f"Initial memory usage: {initial_memory:.1f} MB")
     
-    # For very large datasets, suggest optimization and adjust workers
+    # For very large datasets, provide suggestions but don't auto-adjust
     if total_samples > 500000:  # 500k samples
-        logger.info("🔧 Large dataset detected! Applying optimizations:")
+        logger.info("🔧 Large dataset detected! Performance suggestions:")
         logger.info(f"   - Recommended batch size: 64-128 (current: {batch_size})")
-        logger.info(f"   - Recommended workers: 8-16 (current: {num_workers})")
+        logger.info(f"   - Monitor memory usage with current worker count: {num_workers}")
         logger.info(f"   - Estimated processing time: {total_samples/20/60:.1f} - {total_samples/40/60:.1f} minutes")
         logger.info(f"   - Consider processing splits separately: --splits train")
-        
-        # Auto-adjust workers for very large datasets to prevent memory issues
-        if total_samples > 1000000 and num_workers > 12:
-            original_workers = num_workers
-            num_workers = min(12, num_workers)
-            logger.warning(f"⚠️  Very large dataset! Reducing workers from {original_workers} to {num_workers} to prevent memory issues")
         
     if dry_run:
         logger.info("🔍 DRY RUN - No actual processing will be performed")

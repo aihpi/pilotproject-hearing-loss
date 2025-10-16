@@ -1,0 +1,55 @@
+===== Audio Masking Job Information =====
+Job ID: 1362276
+Node: gx10
+CPU Count: 64
+Memory: 524288MB
+Time Limit: 
+Start Time: Thu Oct 16 16:56:30 CEST 2025
+===========================================
+Activating virtual environment...
+Python version: Python 3.12.3
+Available CPU cores: 64
+Starting audio masking processing...
+Configuration:
+  Input directory: data/CommonVoiceEN
+  Output base: data/CommonVoiceEN (default)
+  Sample rate: 16000 Hz
+  Batch size: 128
+  Number of workers: 64
+  Log level: INFO
+  Splits: all splits
+  Dry run: false
+===========================================
+Command: python scripts/mask_audio.py --input-dir data/CommonVoiceEN --sample-rate 16000 --batch-size 128 --num-workers 64 --log-level INFO
+===========================================
+2025-10-16 16:56:31,948 - INFO - Python version: 3.12.3 (main, Aug 14 2025, 17:47:21) [GCC 13.3.0]
+2025-10-16 16:56:31,948 - INFO - Available CPU cores: 224
+2025-10-16 16:56:31,964 - INFO - Initial memory usage: 136.3 MB
+2025-10-16 16:56:31,964 - INFO - === Starting dataset processing ===
+2025-10-16 16:56:31,964 - INFO - Input directory: data/CommonVoiceEN
+2025-10-16 16:56:31,964 - INFO - Output base: data/CommonVoiceEN
+2025-10-16 16:56:31,964 - INFO - Target sample rate: 16000 Hz
+2025-10-16 16:56:31,964 - INFO - Batch size: 128
+2025-10-16 16:56:31,964 - INFO - Number of workers: 64
+2025-10-16 16:56:31,964 - INFO - Loading dataset from: data/CommonVoiceEN
+2025-10-16 16:56:31,965 - INFO - Loading from HuggingFace cache directory...
+2025-10-16 16:56:33,878 - INFO - Dataset loaded successfully
+2025-10-16 16:56:33,878 - INFO - Available splits: ['train', 'validation', 'test', 'other', 'invalidated']
+2025-10-16 16:56:33,878 - INFO -   - train: 1090061 samples
+2025-10-16 16:56:33,878 - INFO -   - validation: 16390 samples
+2025-10-16 16:56:33,878 - INFO -   - test: 16390 samples
+2025-10-16 16:56:33,878 - INFO -   - other: 299335 samples
+2025-10-16 16:56:33,878 - INFO -   - invalidated: 288077 samples
+2025-10-16 16:56:33,878 - INFO - Total samples to process: 1,710,253
+2025-10-16 16:56:33,879 - INFO - Initial memory usage: 267.6 MB
+2025-10-16 16:56:33,880 - INFO - 🔧 Large dataset detected! Performance suggestions:
+2025-10-16 16:56:33,880 - INFO -    - Recommended batch size: 64-128 (current: 128)
+2025-10-16 16:56:33,881 - INFO -    - Monitor memory usage with current worker count: 64
+2025-10-16 16:56:33,881 - INFO -    - Estimated processing time: 1425.2 - 712.6 minutes
+2025-10-16 16:56:33,881 - INFO -    - Consider processing splits separately: --splits train
+2025-10-16 16:56:33,883 - INFO - Created output directory for normal: data/CommonVoiceEN_normal
+2025-10-16 16:56:33,884 - INFO - Created output directory for lfloss: data/CommonVoiceEN_lfloss
+2025-10-16 16:56:33,885 - INFO - Created output directory for hfloss: data/CommonVoiceEN_hfloss
+2025-10-16 16:56:33,885 - INFO - Setting up output dataset structures...
+2025-10-16 16:56:33,885 - INFO - Copying dataset structure files...
+2025-10-16 16:56:35,022 - INFO - Copying 1 metadata files for normal...
