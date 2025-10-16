@@ -82,3 +82,85 @@ python scripts/download_commonvoice.py --output-dir /path/to/custom/location
 # Use different CommonVoice version (if needed)
 python scripts/download_commonvoice.py --version mozilla-foundation/common_voice_17_0
 ```
+
+## Audio Masking for Hearing Loss Simulation
+
+This project includes functionality to simulate different types of hearing loss by applying frequency-specific attenuation masks to the CommonVoice dataset.
+
+### Overview
+
+The `scripts/mask_audio.py` script processes CommonVoice datasets to create three variants:
+- **Normal hearing baseline** (`*_normal`): 10 dB threshold across all frequencies
+- **Low-frequency hearing loss** (`*_lfloss`): High attenuation at low frequencies (125 Hz: 100 dB → 8000 Hz: 10 dB)
+- **High-frequency hearing loss** (`*_hfloss`): High attenuation at high frequencies (125 Hz: 10 dB → 8000 Hz: 100 dB)
+
+### Usage
+
+```bash
+# Basic usage - process the downloaded CommonVoice dataset
+python scripts/mask_audio.py
+
+# This creates three new datasets:
+# - data/CommonVoiceEN_normal/
+# - data/CommonVoiceEN_lfloss/
+# - data/CommonVoiceEN_hfloss/
+```
+
+### Advanced Options
+
+```bash
+# Specify input and output directories
+python scripts/mask_audio.py \
+    --input-dir data/CommonVoiceEN \
+    --output-base data/MyProcessedDataset
+
+# Configure processing parameters
+python scripts/mask_audio.py \
+    --sample-rate 16000 \
+    --batch-size 64 \
+    --num-workers 8
+
+# Enable debug logging
+python scripts/mask_audio.py --log-level DEBUG
+```
+
+### Processing Parameters
+
+- **`--input-dir`**: Path to the input CommonVoice dataset (default: `data/CommonVoiceEN`)
+- **`--output-base`**: Base name for output directories (default: same as input directory)
+- **`--sample-rate`**: Target sample rate in Hz (default: 16000, required for Whisper models)
+- **`--batch-size`**: Number of audio samples to process per batch (default: 32)
+- **`--num-workers`**: Number of CPU cores for parallel processing (default: 4)
+- **`--log-level`**: Logging verbosity: DEBUG, INFO, WARNING, ERROR (default: INFO)
+
+### Technical Details
+
+**Audio Processing Pipeline:**
+1. **Resampling**: Audio is resampled to the target sample rate (16 kHz by default)
+2. **STFT**: Short-Time Fourier Transform with 2048-sample window and 512-sample hop
+3. **Frequency Masking**: Interpolated attenuation based on hearing loss profiles
+4. **Reconstruction**: Inverse STFT to reconstruct audio signals
+5. **Normalization**: Audio amplitude normalization to prevent clipping
+
+**Memory Management:**
+- Uses batch processing to handle large datasets efficiently
+- Supports multiprocessing for faster execution
+- Automatically manages memory cleanup between batches
+
+**Output Structure:**
+Each output dataset preserves the exact structure of the input dataset, including:
+- All data splits (train, validation, test, etc.)
+- Complete metadata (transcriptions, speaker information, etc.)
+- HuggingFace dataset format compatibility
+
+
+## SLURM Processing
+
+### Audio Masking
+
+For processing the full CommonVoice dataset (1.7M+ samples), use the SLURM batch script:
+
+```bash
+# Basic SLURM submission with default settings
+sbatch scripts/mask_audio.sbatch
+```
