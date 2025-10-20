@@ -1,8 +1,56 @@
+![AISC BMFTR Logo](img/logo_aisc_bmftr.jpg)
+
 # KI-based speech recognition as a method for investigating hearing loss
 
-## Requirements
+## Table of Contents
 
-### Virtual Environment
+1. [Requirements](#1-requirements)
+   
+   1.1. [Virtual Environment](#11-virtual-environment)
+   
+   1.2. [Working Environment](#12-working-environment)
+
+2. [Scripts](#2-scripts)
+
+3. [Data - CommonVoice English Dataset](#3-data---commonvoice-english-dataset)
+   
+   3.1. [Setup Authentication](#31-setup-authentication)
+   
+   3.2. [Download the Dataset](#32-download-the-dataset)
+   
+   3.3. [Download Options](#33-download-options)
+
+4. [Data Preprocessing](#4-data-preprocessing)
+   
+   4.1. [Audio Masking for Hearing Loss Simulation](#41-audio-masking-for-hearing-loss-simulation)
+   
+   4.1.1. [Overview](#411-overview)
+   
+   4.1.2. [Usage](#412-usage)
+   
+   4.1.3. [Advanced Options](#413-advanced-options)
+   
+   4.1.4. [Processing Parameters](#414-processing-parameters)
+   
+   4.1.5. [Technical Details](#415-technical-details)
+   
+   4.2. [Log Mel-Frequency Spectrograms](#42-log-mel-frequency-spectrograms)
+   
+   4.2.1. [Overview](#421-overview)
+   
+   4.2.2. [Individual Processing Script](#422-individual-processing-script)
+   
+   4.2.3. [Batch Processing Script](#423-batch-processing-script)
+
+5. [SLURM Processing](#5-slurm-processing)
+   
+   5.1. [Audio Masking](#51-audio-masking)
+   
+   5.2. [Log Mel-Frequency Spectrograms](#52-log-mel-frequency-spectrograms)
+
+## 1. Requirements
+
+### 1.1. Virtual Environment
 
 To ensure that the same requirements are met across different operating systems and machines, it is recommended to create a virtual environment. This can be set up with *UV*.
 
@@ -29,7 +77,7 @@ Then the required packages are installed. UV ensures that the exact versions are
 uv sync --active  # installs exact versions
 ```
 
-### Working Environment
+### 1.2. Working Environment
 
 Before running any SLURM scripts, you need to configure your personal working directory:
 
@@ -63,11 +111,11 @@ Before running any SLURM scripts, you need to configure your personal working di
 
 **Note:** The `.env.local` file is ignored by git, so your personal configuration won't be committed to the repository.
 
-## Scripts
+## 2. Scripts
 
 All scripts are located in the scripts folder.
 
-## Data
+## 3. Data - CommonVoice English Dataset
 
 Create a folder where the data will be stored. Because the amount of data is relatively big, data will not be provided by this github repository but has to be downloaded with the scripts below.
 
@@ -75,17 +123,15 @@ Create a folder where the data will be stored. Because the amount of data is rel
 mkdir data
 ```
 
-### CommonVoice English Dataset
-
 This project uses the CommonVoice English dataset from HuggingFace. **Note: This dataset requires HuggingFace authentication.**
 
-#### Setup Authentication
+### 3.1. Setup Authentication
 
 1. **Create a HuggingFace account** at [huggingface.co](https://huggingface.co)
 2. **Get an access token**: Go to Settings → Access Tokens → Create new token (Read access is sufficient)
 3. **Accept the dataset terms**: Visit [CommonVoice 16.1](https://huggingface.co/datasets/mozilla-foundation/common_voice_16_1) and accept the terms
 
-#### Download the Dataset
+### 3.2. Download the Dataset
 
 ```bash
 # Method 1: Using environment variable (recommended)
@@ -98,7 +144,7 @@ python scripts/download_commonvoice.py --token "your_token_here"
 
 This will download the dataset to `data/CommonVoiceEN/` by default.
 
-#### Download Options
+### 3.3. Download Options
 
 The script supports several options:
 
@@ -119,18 +165,20 @@ python scripts/download_commonvoice.py --output-dir /path/to/custom/location
 python scripts/download_commonvoice.py --version mozilla-foundation/common_voice_17_0
 ```
 
-## Audio Masking for Hearing Loss Simulation
+## 4. Data Preprocessing
+
+### 4.1. Audio Masking for Hearing Loss Simulation
 
 This project includes functionality to simulate different types of hearing loss by applying frequency-specific attenuation masks to the CommonVoice dataset.
 
-### Overview
+#### 4.1.1. Overview
 
 The `scripts/mask_audio.py` script processes CommonVoice datasets to create three variants:
 - **Normal hearing baseline** (`*_normal`): 10 dB threshold across all frequencies
 - **Low-frequency hearing loss** (`*_lfloss`): High attenuation at low frequencies (125 Hz: 100 dB → 8000 Hz: 10 dB)
 - **High-frequency hearing loss** (`*_hfloss`): High attenuation at high frequencies (125 Hz: 10 dB → 8000 Hz: 100 dB)
 
-### Usage
+#### 4.1.2. Usage
 
 ```bash
 # Basic usage - process the downloaded CommonVoice dataset
@@ -142,7 +190,7 @@ python scripts/mask_audio.py
 # - data/CommonVoiceEN_hfloss/
 ```
 
-### Advanced Options
+#### 4.1.3. Advanced Options
 
 ```bash
 # Specify input and output directories
@@ -160,7 +208,7 @@ python scripts/mask_audio.py \
 python scripts/mask_audio.py --log-level DEBUG
 ```
 
-### Processing Parameters
+#### 4.1.4. Processing Parameters
 
 - **`--input-dir`**: Path to the input CommonVoice dataset (default: `data/CommonVoiceEN`)
 - **`--output-base`**: Base name for output directories (default: same as input directory)
@@ -169,7 +217,7 @@ python scripts/mask_audio.py --log-level DEBUG
 - **`--num-workers`**: Number of CPU cores for parallel processing (default: 4)
 - **`--log-level`**: Logging verbosity: DEBUG, INFO, WARNING, ERROR (default: INFO)
 
-### Technical Details
+#### 4.1.5. Technical Details
 
 **Audio Processing Pipeline:**
 1. **Resampling**: Audio is resampled to the target sample rate (16 kHz by default)
@@ -190,9 +238,81 @@ Each output dataset preserves the exact structure of the input dataset, includin
 - HuggingFace dataset format compatibility
 
 
-## SLURM Processing
+### 4.2. Log Mel-Frequency Spectrograms
 
-### Audio Masking
+This project includes functionality to convert the hearing loss datasets into Log Mel-Frequency Spectrograms suitable for Whisper and LDL-AURIS model training. The preprocessing pipeline converts audio into 128-dimensional Log-Mel spectrograms required by Whisper Large V3.
+
+#### 4.2.1. Overview
+
+The Log-Mel preprocessing creates training-ready datasets from the hearing loss variants:
+- **Normal hearing spectrograms** from `*_normal` datasets
+- **Low-frequency hearing loss spectrograms** from `*_lfloss` datasets  
+- **High-frequency hearing loss spectrograms** from `*_hfloss` datasets
+
+Each dataset is converted to Log-Mel spectrograms with proper tokenization for Whisper training. For large-scale processing on computing clusters, see [SLURM Processing → Log Mel-Frequency Spectrograms](#log-mel-frequency-spectrograms-1).
+
+#### 4.2.2. Individual Processing Script
+
+Use `scripts/DataSet2LogMel.py` to convert a single hearing loss dataset:
+
+```bash
+# Convert normal hearing dataset
+python scripts/DataSet2LogMel.py \
+    --input_dataset data/CommonVoiceEN_normal/dataset \
+    --output_dataset data/CommonVoiceEN_normal_logmel
+
+# Convert low-frequency hearing loss dataset
+python scripts/DataSet2LogMel.py \
+    --input_dataset data/CommonVoiceEN_lfloss/dataset \
+    --output_dataset data/CommonVoiceEN_lfloss_logmel
+```
+
+#### Command-line Arguments
+
+- **`--input_dataset`** (required): Path to input CommonVoice dataset folder
+- **`--output_dataset`** (required): Path where preprocessed dataset will be saved
+- **`--model_size`**: Whisper model size for feature extraction (default: "large-v3")
+- **`--num_cpus`**: Number of CPU cores to use (default: all available)
+- **`--batch_size`**: Processing batch size (default: 1000)
+- **`--writer_batch_size`**: Writer batch size for disk saving (default: 100)
+- **`--max_memory_per_worker`**: Maximum memory per worker in GB (default: 4.0)
+- **`--language`**: Language for tokenizer (default: "en")
+- **`--task`**: Task type for tokenizer: "transcribe" or "translate" (default: "transcribe")
+- **`--shuffle_seed`**: Random seed for shuffling (default: 42)
+- **`--max_samples`**: Maximum samples per split for testing (default: all)
+
+#### 4.2.3. Batch Processing Script
+
+Use `scripts/DataSet2LogMelBatch.py` to automatically process all three hearing loss variants:
+
+```bash
+# Process all datasets with default settings
+python scripts/DataSet2LogMelBatch.py
+
+# Process with custom resource allocation
+python scripts/DataSet2LogMelBatch.py \
+    --cpus-per-task 64 \
+    --memory 500G \
+    --batch-size 2000
+```
+
+#### Command-line Arguments
+
+**SLURM Resource Parameters:**
+- **`--cpus-per-task`**: CPU cores per SLURM task (default: 48)
+- **`--memory`**: Memory allocation per job (default: "400G")
+- **`--time`**: Time limit per job (default: "32:00:00")
+
+**Processing Parameters:**
+- **`--model-size`**: Whisper model size (default: "large-v3")
+- **`--batch-size`**: Processing batch size (default: 1000)
+- **`--max-samples`**: Maximum samples per split for testing (default: all)
+- **`--skip-existing`**: Skip datasets with existing output directories
+
+
+## 5. SLURM Processing
+
+### 5.1. Audio Masking
 
 For processing the full CommonVoice dataset (1.7M+ samples), use the SLURM batch script:
 
@@ -216,3 +336,36 @@ BATCH_SIZE=256 NUM_WORKERS=32 sbatch scripts/mask_audio.sbatch
 # Or pass arguments directly to the underlying script
 sbatch scripts/mask_audio.sbatch --batch-size 256 --num-workers 32
 ```
+
+### 5.2. Log Mel-Frequency Spectrograms
+
+For processing large hearing loss datasets to Log-Mel spectrograms using SLURM:
+
+```bash
+# Process all three datasets (normal, lfloss, hfloss) automatically
+python scripts/DataSet2LogMelBatch.py
+
+# This will submit 3 SLURM jobs:
+# - Job 1: CommonVoiceEN_normal → CommonVoiceEN_normal_logmel
+# - Job 2: CommonVoiceEN_lfloss → CommonVoiceEN_lfloss_logmel  
+# - Job 3: CommonVoiceEN_hfloss → CommonVoiceEN_hfloss_logmel
+```
+
+**Individual SLURM Job Submission:**
+```bash
+# Process a single dataset via SLURM
+sbatch scripts/DataSet2LogMel.sbatch \
+    --input_dataset data/CommonVoiceEN_normal/dataset \
+    --output_dataset data/CommonVoiceEN_normal_logmel
+```
+
+The SLURM script will automatically:
+1. Load your personal working directory from `.env.local`
+2. Navigate to your project directory
+3. Activate the virtual environment
+4. Run the Log-Mel preprocessing with optimized memory settings
+
+**SLURM Resource Configuration:**
+- **Default**: 48 CPU cores, 400GB memory, 32-hour time limit
+- **Recommended**: For ~60K samples, jobs typically complete in 8-12 minutes
+- **Output**: Each dataset produces ~87GB of Log-Mel spectrograms ready for Whisper training
