@@ -1,0 +1,20 @@
+{
+  "dataset_path": "/sc/home/hanno.mueller/pilotproject-hearing-loss/data/CommonVoiceEN",
+  "check_timestamp": 1760709100.3200357,
+  "statistics": {
+    "total_files": 1568990,
+    "empty_files": 2204,
+    "corrupted_files": 0,
+    "very_short_files": 79,
+    "processing_errors": 0,
+    "total_duration": 8767090.024492647,
+    "total_size_bytes": 62394049239
+  },
+  "problematic_files": [
+    {
+      "path": "/sc/home/hanno.mueller/pilotproject-hearing-loss/data/CommonVoiceEN/cache/downloads/extracted/1b97e1c54d3463ea21c292111287dad24ce6d6a08084b8383d172f573b473e4b/en_other_6/common_voice_en_38395324.mp3",
+      "size_bytes": 48429,
+      "duration_seconds": 8.064,
+      "sample_rate": 32000,
+      "channels": 1,
+      "is_empty": 

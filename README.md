@@ -2,6 +2,8 @@
 
 ## Requirements
 
+### Virtual Environment
+
 To ensure that the same requirements are met across different operating systems and machines, it is recommended to create a virtual environment. This can be set up with *UV*.
 
 ```bash
@@ -26,6 +28,40 @@ Then the required packages are installed. UV ensures that the exact versions are
 ```bash
 uv sync --active  # installs exact versions
 ```
+
+### Working Environment
+
+Before running any SLURM scripts, you need to configure your personal working directory:
+
+1. **Copy the environment template:**
+   ```bash
+   cp .env.local.template .env.local
+   ```
+
+2. **Edit `.env.local` to set your working directory:**
+   ```bash
+   # Open in your preferred editor
+   nano .env.local
+   # or
+   vim .env.local
+   ```
+
+3. **Update the `PROJECT_ROOT` variable** to point to your personal working directory:
+   ```bash
+   # Example for user "john.doe":
+   PROJECT_ROOT=/sc/home/john.doe/pilotproject-hearing-loss
+   
+   # Example for different mount point:
+   PROJECT_ROOT=/home/username/projects/pilotproject-hearing-loss
+   ```
+
+4. **Verify your configuration:**
+   ```bash
+   source .env.local
+   echo "Project root: $PROJECT_ROOT"
+   ```
+
+**Note:** The `.env.local` file is ignored by git, so your personal configuration won't be committed to the repository.
 
 ## Scripts
 
@@ -161,6 +197,22 @@ Each output dataset preserves the exact structure of the input dataset, includin
 For processing the full CommonVoice dataset (1.7M+ samples), use the SLURM batch script:
 
 ```bash
+# Make sure you've configured your working environment first (see Requirements > Working Environment)
 # Basic SLURM submission with default settings
 sbatch scripts/mask_audio.sbatch
+```
+
+The script will automatically:
+1. Load your personal working directory from `.env.local`
+2. Navigate to your project directory
+3. Activate the virtual environment
+4. Run the audio masking processing
+
+**Advanced SLURM Options:**
+```bash
+# Override specific parameters via environment variables
+BATCH_SIZE=256 NUM_WORKERS=32 sbatch scripts/mask_audio.sbatch
+
+# Or pass arguments directly to the underlying script
+sbatch scripts/mask_audio.sbatch --batch-size 256 --num-workers 32
 ```

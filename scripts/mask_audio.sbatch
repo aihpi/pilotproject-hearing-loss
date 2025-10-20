@@ -33,8 +33,18 @@ echo "Time Limit: ${SLURM_JOB_TIME_LIMIT}"
 echo "Start Time: $(date)"
 echo "==========================================="
 
+# Load environment variables if .env.local exists
+if [ -f ".env.local" ]; then
+    echo "Loading environment variables from .env.local..."
+    export $(grep -v '^#' .env.local | xargs)
+fi
+
+# Set default project root if not defined
+PROJECT_ROOT="${PROJECT_ROOT:-$(dirname "$(realpath "$0")")/../}"
+
 # Navigate to project directory
-cd /sc/home/hanno.mueller/pilotproject-hearing-loss/
+echo "Navigating to project directory: $PROJECT_ROOT"
+cd "$PROJECT_ROOT"
 
 # Activate virtual environment
 echo "Activating virtual environment..."
