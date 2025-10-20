@@ -11,6 +11,8 @@ dependencies = [
     "torch>=2.0.0", # For tensor operations
     "huggingface-hub>=0.16.0", # HuggingFace Hub client
     "psutil>=7.1.0",
+    "transformers>=4.57.1",
+    "torchaudio>=2.8.0",
 ]
 
 [tool.uv]
