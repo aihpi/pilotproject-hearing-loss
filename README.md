@@ -162,7 +162,7 @@ python scripts/download_commonvoice.py --splits train validation
 python scripts/download_commonvoice.py --output-dir /path/to/custom/location
 
 # Use different CommonVoice version (if needed)
-python scripts/download_commonvoice.py --version mozilla-foundation/common_voice_17_0
+ice.py --version mozilla-foundation/common_voice_17_0
 ```
 
 ## 4. Data Preprocessing
