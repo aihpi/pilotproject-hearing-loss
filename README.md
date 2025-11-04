@@ -24,29 +24,19 @@
    
    4.1. [Audio Masking for Hearing Loss Simulation](#41-audio-masking-for-hearing-loss-simulation)
    
-   4.1.1. [Overview](#411-overview)
-   
-   4.1.2. [Usage](#412-usage)
-   
-   4.1.3. [Advanced Options](#413-advanced-options)
-   
-   4.1.4. [Processing Parameters](#414-processing-parameters)
-   
-   4.1.5. [Technical Details](#415-technical-details)
-   
    4.2. [Log Mel-Frequency Spectrograms](#42-log-mel-frequency-spectrograms)
-   
-   4.2.1. [Overview](#421-overview)
-   
-   4.2.2. [Individual Processing Script](#422-individual-processing-script)
-   
-   4.2.3. [Batch Processing Script](#423-batch-processing-script)
 
-5. [SLURM Processing](#5-slurm-processing)
+5. [Whisper Model Fine-tuning](#5-whisper-model-fine-tuning)
+
+   5.1. [Training Visualization](#51-training-visualization)
+
+6. [SLURM Processing](#6-slurm-processing)
    
-   5.1. [Audio Masking](#51-audio-masking)
+   6.1. [Audio Masking](#61-audio-masking)
    
-   5.2. [Log Mel-Frequency Spectrograms](#52-log-mel-frequency-spectrograms)
+   6.2. [Log Mel-Frequency Spectrograms](#62-log-mel-frequency-spectrograms)
+   
+   6.3. [Whisper Training](#63-whisper-training)
 
 ## 1. Requirements
 
@@ -226,11 +216,6 @@ python scripts/mask_audio.py --log-level DEBUG
 4. **Reconstruction**: Inverse STFT to reconstruct audio signals
 5. **Normalization**: Audio amplitude normalization to prevent clipping
 
-**Memory Management:**
-- Uses batch processing to handle large datasets efficiently
-- Supports multiprocessing for faster execution
-- Automatically manages memory cleanup between batches
-
 **Output Structure:**
 Each output dataset preserves the exact structure of the input dataset, including:
 - All data splits (train, validation, test, etc.)
@@ -240,18 +225,153 @@ Each output dataset preserves the exact structure of the input dataset, includin
 
 ### 4.2. Log Mel-Frequency Spectrograms
 
-This project includes functionality to convert the hearing loss datasets into Log Mel-Frequency Spectrograms suitable for Whisper and LDL-AURIS model training. The preprocessing pipeline converts audio into 128-dimensional Log-Mel spectrograms required by Whisper Large V3.
+Before training Whisper models, audio data needs to be converted to log-Mel spectrograms. The `scripts/DataSet2LogMel.py` script processes the masked audio datasets into the format required by Whisper.
 
-#### 4.2.1. Overview
+#### Usage
 
-The Log-Mel preprocessing creates training-ready datasets from the hearing loss variants:
-- **Normal hearing spectrograms** from `*_normal` datasets
-- **Low-frequency hearing loss spectrograms** from `*_lfloss` datasets  
-- **High-frequency hearing loss spectrograms** from `*_hfloss` datasets
+```bash
+# Process a single dataset
+python scripts/DataSet2LogMel.py \
+    --input-dir data/CommonVoiceEN_normal \
+    --output-dir data/CommonVoiceEN_normal_logmel
 
-Each dataset is converted to Log-Mel spectrograms with proper tokenization for Whisper training. For large-scale processing on computing clusters, see [SLURM Processing → Log Mel-Frequency Spectrograms](#log-mel-frequency-spectrograms-1).
+# Process with custom parameters
+python scripts/DataSet2LogMel.py \
+    --input-dir data/CommonVoiceEN_hfloss \
+    --output-dir data/CommonVoiceEN_hfloss_logmel \
+    --batch-size 64 \
+    --num-workers 8
+```
 
-#### 4.2.2. Individual Processing Script
+#### Processing Parameters
+
+- **`--input-dir`**: Path to the masked audio dataset
+- **`--output-dir`**: Output directory for log-Mel spectrograms
+- **`--batch-size`**: Number of audio samples to process per batch (default: 32)
+- **`--num-workers`**: Number of CPU cores for parallel processing (default: 4)
+- **`--sample-rate`**: Target sample rate in Hz (default: 16000)
+
+The script creates log-Mel spectrograms with 128 mel bins (required for Whisper Large-v3) and preserves all dataset splits and metadata.
+
+
+## 5. Whisper Model Fine-tuning
+
+The training uses pre-processed log-Mel spectrograms and supports parallel training on multiple datasets.
+
+### Usage
+
+```bash
+# Fine-tune on normal hearing dataset
+python scripts/train_whisper.py \
+    --input_folder "data/CommonVoiceEN_normal_logmel" \
+    --output_folder "results/whisper_finetuned_normal" \
+    --model_size large-v3 \
+    --num_gpus 4 \
+    --learning_rate 1.5e-5 \
+    --max_steps 10000
+```
+
+### Training Parameters
+
+The scripts support the following hyperparameters with defaults:
+
+- **`--model_size`**: Whisper model size (default: large-v3)
+- **`--num_gpus`**: Number of GPUs to use (default: 4)
+- **`--num_cpus`**: Number of CPUs to use (default: 24)
+- **`--dataloader_workers`**: Number of data loader workers (default: 20)
+- **`--train_batch_size`**: Training batch size per device (default: 1)
+- **`--eval_batch_size`**: Evaluation batch size per device (default: 1)
+- **`--gradient_accumulation`**: Number of gradient accumulation steps (default: 16)
+- **`--learning_rate`**: Learning rate (default: 1.5e-5)
+- **`--max_steps`**: Maximum number of training steps (default: 10000)
+- **`--warmup_steps`**: Number of warmup steps (default: 1000)
+- **`--save_steps`**: Save checkpoint every X steps (default: 500)
+- **`--eval_steps`**: Evaluate every X steps (default: 500)
+- **`--logging_steps`**: Log training metrics every X steps (default: 50)
+- **`--weight_decay`**: Weight decay coefficient (default: 0.05)
+- **`--lr_scheduler_type`**: Learning rate scheduler type (default: linear)
+
+### Key Features
+
+- **Language**: English (optimized for CommonVoice English datasets)
+- **Training Split**: Uses `train` split for training
+- **Evaluation Split**: Uses `test` split for evaluation
+- **Model**: Whisper Large-v3 with 128 mel bins support
+
+### Output Structure
+
+Models are saved with the following structure:
+```
+results/
+├── whisper_finetuned_normal/
+│   ├── README.md              # Training configuration
+│   ├── checkpoint-500/        # Model checkpoints
+│   ├── checkpoint-1000/
+│   └── runs/                  # TensorBoard logs
+├── whisper_finetuned_hfloss/
+└── whisper_finetuned_lfloss/
+```
+
+### 5.1. Training Visualization
+
+After training, you can analyze and visualize the training progress using TensorBoard logs. The `tensorboard_visualise_runs.py` script extracts metrics from TensorBoard logs and creates comprehensive training visualizations.
+
+#### Usage
+
+```bash
+# Basic usage - visualize training results
+python scripts/tensorboard_visualise_runs.py results/whisper_finetuned_normal
+```
+
+#### Generated Visualizations
+
+The script automatically creates the following plots:
+
+1. **Loss Curves** (`loss_curves.png`): Training and evaluation loss over time
+2. **Learning Rate Schedule** (`learning_rate.png`): Learning rate changes during training
+3. **Gradient Norm** (`gradient_norm.png`): Gradient magnitude tracking for stability monitoring
+4. **Word Error Rate** (`word_error_rate.png`): WER improvement over training steps
+5. **Training Overview** (`training_overview.png`): Combined 2x2 subplot with all key metrics
+6. **CSV Data** (`csv_data/`): Raw extracted data in CSV format for further analysis
+7. **Summary Report** (`training_summary.txt`): Statistical summary of training metrics
+
+#### Parameters
+
+- **`model_path`**: Path to the trained model directory (required)
+- **`--output_dir`**: Output directory for plots (default: creates 'tensorboard' folder in model directory)
+- **`--format`**: Output format: png, pdf, svg, jpg (default: png)
+- **`--dpi`**: Resolution for output plots (default: 300)
+- **`--figsize`**: Figure size as 'width,height' in inches (default: 12,8)
+- **`--smooth`**: Smoothing factor 0.0-1.0 for noisy curves (default: 0.0)
+
+## 6. SLURM Processing
+
+### 6.1. Audio Masking
+
+For processing the full CommonVoice dataset (1.7M+ samples), use the SLURM batch script:
+
+```bash
+# Make sure you've configured your working environment first (see Requirements > Working Environment)
+# Basic SLURM submission with default settings
+sbatch scripts/mask_audio.sbatch
+```
+
+The script will automatically:
+1. Load your personal working directory from `.env.local`
+2. Navigate to your project directory
+3. Activate the virtual environment
+4. Run the audio masking processing
+
+**Advanced SLURM Options:**
+```bash
+# Override specific parameters via environment variables
+BATCH_SIZE=256 NUM_WORKERS=32 sbatch scripts/mask_audio.sbatch
+
+# Or pass arguments directly to the underlying script
+sbatch scripts/mask_audio.sbatch --batch-size 256 --num-workers 32
+```
+
+### 6.3. Log-Mel Spectrograms
 
 Use `scripts/DataSet2LogMel.py` to convert a single hearing loss dataset:
 
@@ -260,11 +380,6 @@ Use `scripts/DataSet2LogMel.py` to convert a single hearing loss dataset:
 python scripts/DataSet2LogMel.py \
     --input_dataset data/CommonVoiceEN_normal/dataset \
     --output_dataset data/CommonVoiceEN_normal_logmel
-
-# Convert low-frequency hearing loss dataset
-python scripts/DataSet2LogMel.py \
-    --input_dataset data/CommonVoiceEN_lfloss/dataset \
-    --output_dataset data/CommonVoiceEN_lfloss_logmel
 ```
 
 #### Command-line Arguments
@@ -281,7 +396,7 @@ python scripts/DataSet2LogMel.py \
 - **`--shuffle_seed`**: Random seed for shuffling (default: 42)
 - **`--max_samples`**: Maximum samples per split for testing (default: all)
 
-#### 4.2.3. Batch Processing Script
+#### Batch Processing Script
 
 Use `scripts/DataSet2LogMelBatch.py` to automatically process all three hearing loss variants:
 
@@ -309,63 +424,23 @@ python scripts/DataSet2LogMelBatch.py \
 - **`--max-samples`**: Maximum samples per split for testing (default: all)
 - **`--skip-existing`**: Skip datasets with existing output directories
 
+### 6.4. Whisper Training
 
-## 5. SLURM Processing
-
-### 5.1. Audio Masking
-
-For processing the full CommonVoice dataset (1.7M+ samples), use the SLURM batch script:
+For training Whisper models on the hearing loss datasets, use environment variables to specify input and output directories:
 
 ```bash
-# Make sure you've configured your working environment first (see Requirements > Working Environment)
-# Basic SLURM submission with default settings
-sbatch scripts/mask_audio.sbatch
+# Train on normal hearing dataset
+export INPUT_FOLDER="data/CommonVoiceEN_normal_logmel"
+export OUTPUT_FOLDER="results/whisper_finetuned_normal"
+sbatch scripts/train_whisper.sbatch
+
+# Train on high frequency hearing loss dataset
+export INPUT_FOLDER="data/CommonVoiceEN_hfloss_logmel"
+export OUTPUT_FOLDER="results/whisper_finetuned_hfloss"
+sbatch scripts/train_whisper.sbatch
+
+# Train on low frequency hearing loss dataset
+export INPUT_FOLDER="data/CommonVoiceEN_lfloss_logmel"
+export OUTPUT_FOLDER="results/whisper_finetuned_lfloss"
+sbatch scripts/train_whisper.sbatch
 ```
-
-The script will automatically:
-1. Load your personal working directory from `.env.local`
-2. Navigate to your project directory
-3. Activate the virtual environment
-4. Run the audio masking processing
-
-**Advanced SLURM Options:**
-```bash
-# Override specific parameters via environment variables
-BATCH_SIZE=256 NUM_WORKERS=32 sbatch scripts/mask_audio.sbatch
-
-# Or pass arguments directly to the underlying script
-sbatch scripts/mask_audio.sbatch --batch-size 256 --num-workers 32
-```
-
-### 5.2. Log Mel-Frequency Spectrograms
-
-For processing large hearing loss datasets to Log-Mel spectrograms using SLURM:
-
-```bash
-# Process all three datasets (normal, lfloss, hfloss) automatically
-python scripts/DataSet2LogMelBatch.py
-
-# This will submit 3 SLURM jobs:
-# - Job 1: CommonVoiceEN_normal → CommonVoiceEN_normal_logmel
-# - Job 2: CommonVoiceEN_lfloss → CommonVoiceEN_lfloss_logmel  
-# - Job 3: CommonVoiceEN_hfloss → CommonVoiceEN_hfloss_logmel
-```
-
-**Individual SLURM Job Submission:**
-```bash
-# Process a single dataset via SLURM
-sbatch scripts/DataSet2LogMel.sbatch \
-    --input_dataset data/CommonVoiceEN_normal/dataset \
-    --output_dataset data/CommonVoiceEN_normal_logmel
-```
-
-The SLURM script will automatically:
-1. Load your personal working directory from `.env.local`
-2. Navigate to your project directory
-3. Activate the virtual environment
-4. Run the Log-Mel preprocessing with optimized memory settings
-
-**SLURM Resource Configuration:**
-- **Default**: 48 CPU cores, 400GB memory, 32-hour time limit
-- **Recommended**: For ~60K samples, jobs typically complete in 8-12 minutes
-- **Output**: Each dataset produces ~87GB of Log-Mel spectrograms ready for Whisper training
