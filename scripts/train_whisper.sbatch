@@ -49,14 +49,12 @@ DATALOADER_WORKERS="${DATALOADER_WORKERS:-20}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-1}"
 EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-1}"
 GRADIENT_ACCUMULATION="${GRADIENT_ACCUMULATION:-16}"
-LEARNING_RATE="${LEARNING_RATE:-1.5e-5}"
+LEARNING_RATE="${LEARNING_RATE:-1e-5}"
 MAX_STEPS="${MAX_STEPS:-10000}"
-WARMUP_STEPS="${WARMUP_STEPS:-1000}"
+WARMUP_STEPS="${WARMUP_STEPS:-500}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
 EVAL_STEPS="${EVAL_STEPS:-500}"
 LOGGING_STEPS="${LOGGING_STEPS:-50}"
-WEIGHT_DECAY="${WEIGHT_DECAY:-0.05}"
-LR_SCHEDULER_TYPE="${LR_SCHEDULER_TYPE:-linear}"
 RESUME_CHECKPOINT="${RESUME_CHECKPOINT:-}"  # Optional, empty by default
 
 echo "========================================="
@@ -77,8 +75,6 @@ echo "Warmup steps: $WARMUP_STEPS"
 echo "Save steps: $SAVE_STEPS"
 echo "Eval steps: $EVAL_STEPS"
 echo "Logging steps: $LOGGING_STEPS"
-echo "Weight decay: $WEIGHT_DECAY"
-echo "LR scheduler: $LR_SCHEDULER_TYPE"
 if [ -n "${RESUME_CHECKPOINT}" ]; then
     echo "Resume from checkpoint: $RESUME_CHECKPOINT"
 fi
@@ -102,8 +98,6 @@ TRAIN_ARGS=(
     --eval_steps "$EVAL_STEPS"
     --logging_steps "$LOGGING_STEPS"
     --max_grad_norm 0.5
-    --weight_decay "$WEIGHT_DECAY"
-    --lr_scheduler_type "$LR_SCHEDULER_TYPE"
     --bf16
     --report_to "tensorboard"
 )
