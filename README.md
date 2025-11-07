@@ -62,7 +62,7 @@ If UV is not installed, it can be installed as follows.
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env  # Add UV to PATH for current session
+source $HOME/.local/bin/env  # Add UV to PATH for current session 
 ```
 
 Afterwards, the virtual environment can be created and activated.
@@ -79,6 +79,12 @@ uv sync --active  # installs exact versions
 ```
 
 ### 1.2. Working Environment
+
+**Note:** This project is designed to run on the **AISC cluster** at HPI. The SLURM batch scripts are pre-configured with AISC-specific settings (`--account=aisc`, `--partition=aisc`, `--qos=aisc`). If you're using a different HPC cluster, you'll need to modify the SLURM directives in the `.sbatch` files accordingly.
+
+**Getting Access to the AISC Cluster:**
+- General HPI cluster documentation: [https://docs.sc.hpi.de/](https://docs.sc.hpi.de/)
+- AISC-specific documentation: [https://aisc.hpi.de/doc/doku.php?id=start](https://aisc.hpi.de/doc/doku.php?id=start)
 
 Before running any SLURM scripts, you need to configure your personal working directory:
 
