@@ -124,6 +124,17 @@ All scripts are located in the scripts folder.
 
 ## 3. Data - CommonVoice English Dataset
 
+> **⚠️ CRITICAL: Dataset Access Has Changed (November 2025)**  
+> Mozilla has removed CommonVoice datasets from HuggingFace. The dataset is now exclusively available through the [Mozilla Data Collective platform](https://datacollective.mozillafoundation.org/datasets). 
+> 
+> **Action Required:**
+> - The instructions below reference the old HuggingFace location and may not work
+> - Users must manually identify the correct CommonVoice dataset from the Mozilla Data Collective
+> - The `download_commonvoice.py` script needs to be updated to work with the new platform
+> - See: [Mozilla's FAQ on dataset access](https://community.mozilladatacollective.com/faq-can-i-get-the-common-voice-or-other-mdc-datasets-from-other-platforms-like-github-or-hugging-face/)
+>
+> This is a known issue that needs to be resolved. Contributions welcome!
+
 Create a folder where the data will be stored. Because the amount of data is relatively big, data will not be provided by this github repository but has to be downloaded with the scripts below.
 
 ```bash
