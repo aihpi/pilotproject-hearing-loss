@@ -62,6 +62,7 @@ If UV is not installed, it can be installed as follows.
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env  # Add UV to PATH for current session
 ```
 
 Afterwards, the virtual environment can be created and activated.
