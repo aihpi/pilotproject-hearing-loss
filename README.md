@@ -124,16 +124,22 @@ All scripts are located in the scripts folder.
 
 ## 3. Data - CommonVoice English Dataset
 
-> **⚠️ CRITICAL: Dataset Access Has Changed (07.11.2025)**  
-> Mozilla has removed CommonVoice datasets from HuggingFace. The dataset is now exclusively available through the [Mozilla Data Collective platform](https://datacollective.mozillafoundation.org/datasets), yet it is unclear at the moment which dataset corresponds to `CommonVoice 16.1` which is used in this project.
+> **⚠️ CRITICAL: Dataset Access Has Changed (Updated 18.11.2025)**  
+> Mozilla has removed CommonVoice datasets from HuggingFace. The dataset is now exclusively available through the [Mozilla Data Collective platform](https://datacollective.mozillafoundation.org/datasets).
+> 
+> **Status Update:**
+> - The original CommonVoice 16.1 dataset (66 GB, 1.7M clips) is no longer accessible through HuggingFace
+> - Mozilla Data Collective only provides access to the latest version (CommonVoice 23.0: 86.83 GB, 2.54M clips)
+> - Older dataset versions cannot be downloaded anymore easily (one to get in touch with Mozilla Datacollection via email to tell them which version you need and why) https://community.mozilladatacollective.com/were-changing-access-to-older-versions-of-common-voice-datasets/
+> - **Migration Required:** This repository must be updated to work with [CommonVoice 23.0](https://datacollective.mozillafoundation.org/datasets/cmflnuzw52mzok78yz6woemc1)
 > 
 > **Action Required:**
-> - The instructions below reference the old HuggingFace location and do not work!
-> - Users must manually identify the correct CommonVoice dataset from the Mozilla Data Collective
-> - The `download_commonvoice.py` script needs to be updated to work with the new platform
+> - The instructions below reference the old HuggingFace location and **do not work anymore**
+> - The `download_commonvoice.py` script needs to be rewritten to use the Mozilla Data Collective API
+> - Dataset format conversion from TSV (Mozilla) to Arrow (HuggingFace) format is required
 > - See: [Mozilla's FAQ on dataset access](https://community.mozilladatacollective.com/faq-can-i-get-the-common-voice-or-other-mdc-datasets-from-other-platforms-like-github-or-hugging-face/)
 >
-> This is a known issue that needs to be resolved. 
+> **This migration is planned and will be implemented in a separate pull request.** 
 
 Create a folder where the data will be stored. Because the amount of data is relatively big, data will not be provided by this github repository but has to be downloaded with the scripts below.
 
