@@ -48,9 +48,11 @@ uv.lock
 # Data files
 data/
 cv-corpus-22.0*
+results/
 
 # Temporary files
 tmp/
+test/
 
 # Environment variables
 .env
