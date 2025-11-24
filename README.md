@@ -62,7 +62,7 @@ If UV is not installed, it can be installed as follows.
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env  # Add UV to PATH for current session 
+source $HOME/.local/bin/env # Add UV to PATH for current session or restart the terminal.
 ```
 
 Afterwards, the virtual environment can be created and activated.
@@ -130,7 +130,7 @@ All scripts are located in the scripts folder.
 > **Status Update:**
 > - The original CommonVoice 16.1 dataset (66 GB, 1.7M clips) is no longer accessible through HuggingFace
 > - Mozilla Data Collective only provides access to the latest version (CommonVoice 23.0: 86.83 GB, 2.54M clips)
-> - Older dataset versions cannot be downloaded anymore easily (one to get in touch with Mozilla Datacollection via email to tell them which version you need and why) https://community.mozilladatacollective.com/were-changing-access-to-older-versions-of-common-voice-datasets/
+> - Older dataset versions cannot be downloaded anymore easily. One would need to get in touch with Mozilla Data Collective via email to tell them which version you need and why. See: [Mozilla's community discussion on accessing older versions](https://community.mozilladatacollective.com/were-changing-access-to-older-versions-of-common-voice-datasets/)
 > - **Migration Required:** This repository must be updated to work with [CommonVoice 23.0](https://datacollective.mozillafoundation.org/datasets/cmflnuzw52mzok78yz6woemc1)
 > 
 > **Action Required:**
