@@ -66,3 +66,6 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Github Copilot instructions (used for David's workflow)
+COPILOT_INSTRUCTIONS.md
