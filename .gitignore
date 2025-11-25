@@ -52,6 +52,7 @@ results/
 
 # Temporary files
 tmp/
+test/
 
 # Environment variables
 .env
