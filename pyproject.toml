@@ -15,6 +15,12 @@ dependencies = [
     "torchaudio>=2.8.0", # Audio processing with PyTorch
     "numpy>=1.24.0", # Numerical computing
     "tqdm>=4.65.0", # Progress bars
+    "evaluate>=0.4.0", # For WER computation
+    "jiwer>=3.0.0", # Required for WER metric computation
+    "accelerate>=0.26.0", # Required for Trainer with PyTorch
+    "tensorboard>=2.0.0", # Required for TensorBoard logging
+    "matplotlib>=3.10.7",
+    "seaborn>=0.13.2",
 ]
 
 [tool.uv]
