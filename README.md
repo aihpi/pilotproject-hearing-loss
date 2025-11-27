@@ -42,11 +42,23 @@
    
    4.2.3. [Batch Processing Script](#423-batch-processing-script)
 
-5. [SLURM Processing](#5-slurm-processing)
+5. [Whisper](#5-whisper)
    
-   5.1. [Audio Masking](#51-audio-masking)
+   5.1. [Training of Whisper](#51-training-of-whisper)
    
-   5.2. [Log Mel-Frequency Spectrograms](#52-log-mel-frequency-spectrograms)
+   5.2. [Prediction with Whisper](#52-prediction-with-whisper)
+
+6. [LDL-AURIS](#6-ldl-auris)
+
+7. [SLURM Processing](#7-slurm-processing)
+   
+   7.1. [Audio Masking](#71-audio-masking)
+   
+   7.2. [Log Mel-Frequency Spectrograms](#72-log-mel-frequency-spectrograms)
+   
+   7.3. [Whisper Training](#73-whisper-training)
+   
+   7.4. [Whisper Prediction](#74-whisper-prediction)
 
 ## 1. Requirements
 
@@ -333,10 +345,134 @@ python scripts/DataSet2LogMelBatch.py \
 - **`--max-samples`**: Maximum samples per split for testing (default: all)
 - **`--skip-existing`**: Skip datasets with existing output directories
 
+## 5. Whisper
 
-## 5. SLURM Processing
+### 5.1. Training of Whisper
 
-### 5.1. Audio Masking
+The `train_whisper.py` script fine-tunes OpenAI's Whisper model on hearing loss datasets. It supports training on normal audio as well as high-frequency and low-frequency hearing loss simulations.
+
+**Basic Usage:**
+```python
+python scripts/train_whisper.py \
+    --model_name_or_path openai/whisper-large-v3 \
+    --train_dataset_path data/CommonVoiceEN_normal_logmel \
+    --output_dir results/whisper_finetuned_normal \
+    --num_train_epochs 3
+```
+
+**Key Parameters:**
+- **`--model_name_or_path`**: Base Whisper model (default: "openai/whisper-large-v3")
+- **`--train_dataset_path`**: Path to Log-Mel spectrogram dataset
+- **`--output_dir`**: Directory to save model checkpoints
+- **`--num_train_epochs`**: Number of training epochs (default: 3)
+- **`--per_device_train_batch_size`**: Batch size per GPU (default: 8)
+- **`--gradient_accumulation_steps`**: Gradient accumulation steps (default: 2)
+- **`--learning_rate`**: Learning rate (default: 1e-5)
+- **`--warmup_steps`**: Number of warmup steps (default: 500)
+- **`--save_steps`**: Save checkpoint every N steps (default: 1000)
+- **`--eval_steps`**: Evaluate every N steps (default: 1000)
+- **`--logging_steps`**: Log metrics every N steps (default: 25)
+
+**Training on Different Hearing Loss Variants:**
+```bash
+# Normal hearing
+python scripts/train_whisper.py \
+    --train_dataset_path data/CommonVoiceEN_normal_logmel \
+    --output_dir results/whisper_finetuned_normal
+
+# High-frequency hearing loss
+python scripts/train_whisper.py \
+    --train_dataset_path data/CommonVoiceEN_hfloss_logmel \
+    --output_dir results/whisper_finetuned_hfloss
+
+# Low-frequency hearing loss
+python scripts/train_whisper.py \
+    --train_dataset_path data/CommonVoiceEN_lfloss_logmel \
+    --output_dir results/whisper_finetuned_lfloss
+```
+
+**Monitoring Training:**
+```bash
+# View training progress with TensorBoard
+python scripts/tensorboard_visualise_runs.py --logdir results/whisper_finetuned_normal
+```
+
+For large-scale training on computing clusters, see [SLURM Processing → Whisper Training](#73-whisper-training).
+
+### 5.2. Prediction with Whisper
+
+The `analyse_with_whisper.py` script performs comprehensive analysis of Whisper model predictions, extracting detailed metrics including token probabilities, embeddings, entropy, and semantic similarity measures.
+
+**Basic Usage:**
+```bash
+python scripts/analyse_with_whisper.py \
+    --input-folder data/MALD \
+    --output-path results/whisper_predictions_normal/analysis.json \
+    --model-path results/whisper_finetuned_normal/checkpoint-2000 \
+    --num-workers 4 \
+    --top-k 1000
+```
+
+**Key Parameters:**
+- **`--input-folder`**: Directory containing audio files (ground truth = filename)
+- **`--output-path`**: Path for main JSON output file
+- **`--model-path`**: Path to Whisper model checkpoint
+- **`--num-workers`**: Number of dataloader workers (default: 20)
+- **`--num-threads`**: CPU threads for processing (default: 8)
+- **`--num-gpus`**: Number of GPUs to use (default: 1, 0 for CPU only)
+- **`--batch-size`**: Batch size for processing (default: 1)
+- **`--top-k`**: Number of top predictions to save (default: 1000)
+
+**Output Structure:**
+
+The script generates:
+1. **Main JSON file** (`analysis.json`): Contains all results with model metadata
+2. **Individual JSON files**: One per audio file with detailed per-token metrics
+
+**Metrics Extracted:**
+
+*Per-Token Metrics:*
+- Predicted token probability and rank
+- Entropy and semantic density
+- Top-k alternative predictions with probabilities and ranks
+- Hidden state embeddings (1280-dimensional)
+- Ground truth comparison (cosine similarity, correlation)
+
+*Normalized Metrics:*
+- Case-insensitive token grouping
+- Aggregated probabilities across token variants
+- Normalized embeddings (probability-weighted, simple average, most probable)
+
+*Pooled Metrics (across all predicted tokens):*
+- Average rank, probability, and entropy
+- Pooled hidden states
+- Pooled ground truth comparison metrics
+
+**Example Analysis:**
+```bash
+# Analyze single audio file
+python scripts/analyse_with_whisper.py \
+    --input-folder test/transcendentalists \
+    --output-path results/single_analysis.json \
+    --model-path results/whisper_finetuned_normal/checkpoint-2000 \
+    --num-workers 0
+
+# Analyze MALD dataset with multiple models
+python scripts/analyse_with_whisper.py \
+    --input-folder data/MALD \
+    --output-path results/whisper_predictions_normal/mald_analysis.json \
+    --model-path results/whisper_finetuned_normal/checkpoint-2000
+```
+
+For detailed documentation of all metrics, see `README_whisper_metrics.md`. For batch processing on computing clusters, see [SLURM Processing → Whisper Prediction](#74-whisper-prediction).
+
+## 6. LDL-AURIS
+
+*This section will be added in future updates.*
+
+## 7. SLURM Processing
+
+### 7.1. Audio Masking
 
 For processing the full CommonVoice dataset (1.7M+ samples), use the SLURM batch script:
 
@@ -361,7 +497,7 @@ BATCH_SIZE=256 NUM_WORKERS=32 sbatch scripts/mask_audio.sbatch
 sbatch scripts/mask_audio.sbatch --batch-size 256 --num-workers 32
 ```
 
-### 5.2. Log Mel-Frequency Spectrograms
+### 7.2. Log Mel-Frequency Spectrograms
 
 For processing large hearing loss datasets to Log-Mel spectrograms using SLURM:
 
@@ -393,3 +529,113 @@ The SLURM script will automatically:
 - **Default**: 48 CPU cores, 400GB memory, 32-hour time limit
 - **Recommended**: For ~60K samples, jobs typically complete in 8-12 minutes
 - **Output**: Each dataset produces ~87GB of Log-Mel spectrograms ready for Whisper training
+
+### 7.3. Whisper Training
+
+For training Whisper models on hearing loss datasets using SLURM, use `train_whisper.sbatch`. The script uses environment variables to specify input and output directories.
+
+**Basic SLURM Submission:**
+```bash
+# Train on normal hearing dataset
+export INPUT_FOLDER="data/CommonVoiceEN_normal_logmel"
+export OUTPUT_FOLDER="results/whisper_finetuned_normal"
+sbatch scripts/train_whisper.sbatch
+
+# Train on high-frequency hearing loss dataset
+export INPUT_FOLDER="data/CommonVoiceEN_hfloss_logmel"
+export OUTPUT_FOLDER="results/whisper_finetuned_hfloss"
+sbatch scripts/train_whisper.sbatch
+
+# Train on low-frequency hearing loss dataset
+export INPUT_FOLDER="data/CommonVoiceEN_lfloss_logmel"
+export OUTPUT_FOLDER="results/whisper_finetuned_lfloss"
+sbatch scripts/train_whisper.sbatch
+```
+
+**SLURM Resource Configuration:**
+- **GPUs**: 4× NVIDIA H100 80GB HBM3
+- **CPUs**: 24 cores per task
+- **Memory**: 200GB
+- **Time Limit**: 24 hours
+- **Partition**: aisc-batch
+
+**Training Configuration:**
+- **Batch size**: 8 per device (32 total with 4 GPUs)
+- **Gradient accumulation**: 2 steps
+- **Learning rate**: 1e-5 with warmup
+- **Evaluation**: Every 1000 steps
+- **Checkpoints**: Saved every 1000 steps
+
+The script automatically:
+1. Activates the virtual environment
+2. Runs training with `train_whisper.py`
+3. Logs training metrics to TensorBoard
+4. Saves model checkpoints to the output directory
+
+**Monitoring Training:**
+```bash
+# Check job status
+squeue -u $USER
+
+# View training logs
+tail -f logs/train_whisper_[JOBID].err
+
+# Launch TensorBoard (after training starts)
+python scripts/tensorboard_visualise_runs.py --logdir results/whisper_finetuned_normal
+```
+
+### 7.4. Whisper Prediction
+
+For batch prediction and analysis on large datasets using SLURM, use `analyse_with_whisper.sbatch`. The script forwards all command-line arguments to `analyse_with_whisper.py`.
+
+**Single Model Analysis:**
+```bash
+sbatch scripts/analyse_with_whisper.sbatch \
+    --input-folder data/MALD \
+    --output-path results/whisper_predictions_normal/mald_analysis.json \
+    --model-path results/whisper_finetuned_normal/checkpoint-2000 \
+    --num-workers 20 \
+    --top-k 1000
+```
+
+**Sequential Multi-Model Analysis:**
+
+Use `run_mald_analysis.sh` to analyze with all three models sequentially using SLURM job dependencies:
+
+```bash
+./scripts/run_mald_analysis.sh
+```
+
+This script will:
+1. Submit Job 1: Normal model → `results/whisper_predictions_normal/`
+2. Submit Job 2: HF loss model (after Job 1) → `results/whisper_predictions_hfloss/`
+3. Submit Job 3: LF loss model (after Job 2) → `results/whisper_predictions_lfloss/`
+
+**SLURM Resource Configuration:**
+- **GPUs**: 1× NVIDIA H100 80GB HBM3
+- **CPUs**: 24 cores (for 20 dataloader workers)
+- **Memory**: 200GB
+- **Time Limit**: 24 hours
+- **Partition**: aisc-batch
+
+**Processing Performance:**
+- **Rate**: ~1.3 samples/second (~78 samples/minute)
+- **Dataset**: 26,793 audio files (MALD)
+- **Estimated Time**: ~6 hours per model
+
+**Monitoring Progress:**
+```bash
+# Check job status and dependencies
+squeue -u $USER
+
+# Monitor live progress
+tail -f logs/whisper_normal_[JOBID].err | grep "Processing batches"
+
+# Check number of processed samples
+ls results/whisper_predictions_normal/*.json 2>/dev/null | grep -v "analysis.json" | wc -l
+```
+
+**Output Structure:**
+- **Main JSON**: `mald_analysis.json` (contains model_path and all results)
+- **Individual JSONs**: One file per audio sample with detailed metrics
+- **Logs**: Stored in `logs/whisper_[model]_[JOBID].{out,err}`
