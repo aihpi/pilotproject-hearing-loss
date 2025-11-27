@@ -12,10 +12,25 @@ Author: Hearing Loss Research
 Date: 2025-11-18
 """
 
+# Set CPU thread limits BEFORE importing torch/numpy to ensure they take effect
 import os
 import sys
-import json
+
+# Parse num_threads argument early
 import argparse
+parser = argparse.ArgumentParser(description="Batch analysis of audio files with Whisper")
+parser.add_argument('--num-threads', type=int, default=1, help='Number of CPU threads for PyTorch (default: 1)')
+args, remaining_argv = parser.parse_known_args()
+
+# Set environment variables before importing heavy libraries
+os.environ['OMP_NUM_THREADS'] = str(args.num_threads)
+os.environ['MKL_NUM_THREADS'] = str(args.num_threads)
+os.environ['OPENBLAS_NUM_THREADS'] = str(args.num_threads)
+os.environ['VECLIB_MAXIMUM_THREADS'] = str(args.num_threads)
+os.environ['NUMEXPR_NUM_THREADS'] = str(args.num_threads)
+
+# Now import the rest
+import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
@@ -30,6 +45,10 @@ from torch.utils.data import Dataset, DataLoader
 import librosa
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 from tqdm import tqdm
+
+# Set torch thread limits (must be done right after importing torch)
+torch.set_num_threads(args.num_threads)
+torch.set_num_interop_threads(args.num_threads)
 
 # Configure logging
 logging.basicConfig(
@@ -109,9 +128,10 @@ class CaseNormalizer:
         self._build_normalization_map()
     
     def _normalize_token_text(self, token_str: str) -> Tuple[str, bool]:
-        """Normalize token: remove space prefix but preserve case."""
-        has_space = token_str.startswith('Ġ') or token_str.startswith('\u0120')
-        normalized = token_str.replace('Ġ', '').replace('\u0120', '')
+        """Normalize token: remove space prefix and convert to lowercase."""
+        has_space = token_str.startswith('Ġ') or token_str.startswith('\u0120') or token_str.startswith(' ')
+        # Remove Unicode space markers and regular spaces, then lowercase
+        normalized = token_str.replace('Ġ', '').replace('\u0120', '').lstrip(' ').lower()
         return normalized, has_space
     
     def _build_normalization_map(self):
@@ -205,6 +225,9 @@ class WhisperAnalyzer:
         ground_truth: str
     ) -> Dict[str, Any]:
         """Get vocabulary embeddings for ground truth token(s)."""
+        # Always capitalize first letter
+        ground_truth = ground_truth[0].upper() + ground_truth[1:] if ground_truth else ground_truth
+        
         result = {
             'text': ground_truth,
             'token_ids': [],
@@ -216,8 +239,8 @@ class WhisperAnalyzer:
         }
         
         try:
-            # Tokenize ground truth (capitalize first letter for sentence-initial position)
-            gt_capitalized = ground_truth[0].upper() + ground_truth[1:] if ground_truth else ground_truth
+            # Tokenize ground truth (already capitalized above)
+            gt_capitalized = ground_truth
             token_ids = self.tokenizer.encode(gt_capitalized, add_special_tokens=False)
             
             if not token_ids:
@@ -242,48 +265,6 @@ class WhisperAnalyzer:
         
         return result
     
-    def get_normalized_ground_truth(self, ground_truth: str) -> Dict[str, Any]:
-        """Get normalized ground truth embeddings (merge case/space variants)."""
-        # Get all variant token IDs
-        all_variant_ids = self.normalizer.get_normalized_ids(ground_truth)
-        
-        if not all_variant_ids:
-            return {
-                'text': ground_truth,
-                'token_ids': [],
-                'embeddings': {
-                    'probability_weighted': None,
-                    'simple_average': None,
-                    'most_probable': None
-                },
-                'is_in_vocab': False
-            }
-        
-        # Get embeddings for all variants - convert to float32
-        variant_embeddings = [self.vocab_embeddings[tid].cpu().numpy().astype(np.float32) for tid in all_variant_ids]
-        
-        # Simple average
-        simple_avg = np.mean(variant_embeddings, axis=0).astype(np.float32)
-        
-        # Most probable variant (assume first one, or could use frequency)
-        most_probable = variant_embeddings[0].astype(np.float32)
-        
-        # For probability weighted, we'd need actual probabilities from prediction
-        # For ground truth, use simple average as proxy
-        prob_weighted = simple_avg
-        
-        return {
-            'text': ground_truth,
-            'token_ids': all_variant_ids,
-            'embeddings': {
-                'probability_weighted': prob_weighted.tolist(),
-                'simple_average': simple_avg.tolist(),
-                'most_probable': most_probable.tolist()
-            },
-            'is_in_vocab': True,
-            'num_variants': len(all_variant_ids)
-        }
-    
     def process_audio(
         self,
         audio: np.ndarray,
@@ -296,7 +277,6 @@ class WhisperAnalyzer:
             'audio_id': audio_id,
             'ground_truth': ground_truth,
             'ground_truth_embeddings': None,
-            'normalized_ground_truth': None,
             'predictions': [],
             'pooled_predictions': None,
             'error': None
@@ -305,7 +285,6 @@ class WhisperAnalyzer:
         try:
             # Get ground truth embeddings
             result['ground_truth_embeddings'] = self.get_ground_truth_embeddings(ground_truth)
-            result['normalized_ground_truth'] = self.get_normalized_ground_truth(ground_truth)
             
             # Process audio with Whisper
             input_features = self.processor(
@@ -342,6 +321,12 @@ class WhisperAnalyzer:
                     if not is_special:
                         content_indices.append(idx)
                 
+                # Remove trailing punctuation
+                if content_indices:
+                    last_token = self.tokenizer.decode([all_token_ids[content_indices[-1]]]).strip()
+                    if last_token in ['.', ',', '!', '?', ';', ':']:
+                        content_indices.pop()
+                
                 # Process each content token
                 for step_idx, _ in enumerate(content_indices):
                     if step_idx < len(generated.decoder_hidden_states):
@@ -349,8 +334,7 @@ class WhisperAnalyzer:
                             step_idx=step_idx,
                             decoder_hidden_states=generated.decoder_hidden_states,
                             token_id=all_token_ids[content_indices[step_idx]],
-                            ground_truth_data=result['ground_truth_embeddings'],
-                            normalized_gt_data=result['normalized_ground_truth']
+                            ground_truth_data=result['ground_truth_embeddings']
                         )
                         result['predictions'].append(token_result)
                 
@@ -358,8 +342,7 @@ class WhisperAnalyzer:
                 if len(result['predictions']) > 1:
                     result['pooled_predictions'] = self._compute_pooled_metrics(
                         result['predictions'],
-                        result['ground_truth_embeddings'],
-                        result['normalized_ground_truth']
+                        result['ground_truth_embeddings']
                     )
         
         except Exception as e:
@@ -376,8 +359,7 @@ class WhisperAnalyzer:
         step_idx: int,
         decoder_hidden_states: Tuple,
         token_id: int,
-        ground_truth_data: Dict,
-        normalized_gt_data: Dict
+        ground_truth_data: Dict
     ) -> Dict[str, Any]:
         """Process a single predicted token and extract all metrics."""
         
@@ -406,8 +388,7 @@ class WhisperAnalyzer:
         normalized_metrics = self._compute_normalized_metrics(
             hidden_vector=hidden_vector,
             probs=probs,
-            token_text=token_text,
-            normalized_gt_data=normalized_gt_data
+            token_text=token_text
         )
         
         return {
@@ -435,21 +416,33 @@ class WhisperAnalyzer:
         top_k_indices = torch.topk(probs, k=min(self.top_k, len(probs))).indices.cpu().numpy()
         top_k_probs = probs_np[top_k_indices]
         
+        # Compute ranks for top-k (1-indexed)
+        top_k_ranks = list(range(1, len(top_k_indices) + 1))
+        
+        # Decode top-k texts
+        top_k_texts = [self.tokenizer.decode([int(tid)]) for tid in top_k_indices]
+        
         # Add ground truth if not in top-k
         gt_token_ids = ground_truth_data.get('token_ids', [])
         all_indices = list(top_k_indices)
         all_probs = list(top_k_probs)
+        all_ranks = list(top_k_ranks)
+        all_texts = list(top_k_texts)
         
         for gt_id in gt_token_ids:
             if gt_id not in top_k_indices:
+                gt_rank = int((probs_np > probs_np[gt_id]).sum()) + 1
                 all_indices.append(gt_id)
                 all_probs.append(probs_np[gt_id])
+                all_ranks.append(gt_rank)
+                all_texts.append(self.tokenizer.decode([gt_id]))
+        
+        # Compute rank and probability for the predicted token
+        predicted_rank = int((probs_np > probs_np[token_id]).sum()) + 1
+        predicted_prob = float(probs_np[token_id])
         
         # Entropy
         entropy = -np.sum(probs_np * np.log(probs_np + 1e-10))
-        
-        # Top probability
-        top_prob = float(probs_np[token_id])
         
         # Semantic density
         semantic_density = self.compute_semantic_density(hidden_vector)
@@ -473,10 +466,13 @@ class WhisperAnalyzer:
                 }
         
         return {
-            'top_k_token_ids': [int(x) for x in all_indices],
+            'predicted_rank': predicted_rank,
+            'predicted_probability': predicted_prob,
+            'top_k_tokens': [int(x) for x in all_indices],
+            'top_k_texts': all_texts,
             'top_k_probabilities': [float(x) for x in all_probs],
+            'top_k_ranks': all_ranks,
             'entropy': float(entropy),
-            'top_probability': top_prob,
             'semantic_density': semantic_density,
             'ground_truth_metrics': gt_metrics
         }
@@ -485,8 +481,7 @@ class WhisperAnalyzer:
         self,
         hidden_vector: torch.Tensor,
         probs: torch.Tensor,
-        token_text: str,
-        normalized_gt_data: Dict
+        token_text: str
     ) -> Dict[str, Any]:
         """Compute metrics for normalized tokens."""
         
@@ -515,12 +510,6 @@ class WhisperAnalyzer:
         top_k_norm_texts = [norm_texts[i] for i in sorted_indices[:top_k_norm]]
         top_k_norm_probs = norm_probs_array[sorted_indices[:top_k_norm]]
         
-        # Add normalized ground truth if not in top-k
-        gt_norm_text = normalized_gt_data.get('text', '').lower()
-        if gt_norm_text and gt_norm_text not in top_k_norm_texts:
-            top_k_norm_texts.append(gt_norm_text)
-            top_k_norm_probs = np.append(top_k_norm_probs, norm_probs.get(gt_norm_text, 0.0))
-        
         # Normalized entropy
         norm_entropy = -np.sum(norm_probs_array * np.log(norm_probs_array + 1e-10))
         
@@ -534,32 +523,6 @@ class WhisperAnalyzer:
             probs_np
         )
         
-        # Metrics vs normalized ground truth
-        norm_gt_metrics = {}
-        if normalized_gt_data.get('is_in_vocab'):
-            gt_embeddings = normalized_gt_data['embeddings']
-            
-            for emb_type in ['probability_weighted', 'simple_average', 'most_probable']:
-                gt_emb = gt_embeddings[emb_type]
-                if gt_emb is not None:
-                    pred_emb = norm_embeddings[emb_type]
-                    if pred_emb is not None:
-                        cosine_sim = self.compute_cosine_similarity(pred_emb, gt_emb)
-                        correlation = self.compute_correlation(pred_emb, gt_emb)
-                        
-                        norm_gt_metrics[emb_type] = {
-                            'cosine_similarity': cosine_sim,
-                            'correlation': correlation
-                        }
-            
-            # Rank and probability
-            gt_norm_text = normalized_gt_data.get('text', '')
-            gt_prob = norm_probs.get(gt_norm_text, 0.0)
-            gt_rank = int((norm_probs_array > gt_prob).sum()) + 1
-            
-            norm_gt_metrics['rank'] = gt_rank
-            norm_gt_metrics['probability'] = float(gt_prob)
-        
         return {
             'normalized_text': current_norm,
             'top_k_normalized_texts': top_k_norm_texts,
@@ -569,8 +532,7 @@ class WhisperAnalyzer:
             'normalized_embeddings': {
                 k: v.tolist() if v is not None else None
                 for k, v in norm_embeddings.items()
-            },
-            'normalized_ground_truth_metrics': norm_gt_metrics
+            }
         }
     
     def _compute_normalized_embeddings(
@@ -615,8 +577,7 @@ class WhisperAnalyzer:
     def _compute_pooled_metrics(
         self,
         predictions: List[Dict],
-        ground_truth_data: Dict,
-        normalized_gt_data: Dict
+        ground_truth_data: Dict
     ) -> Dict[str, Any]:
         """Compute pooled metrics across multiple predicted tokens."""
         
@@ -627,6 +588,11 @@ class WhisperAnalyzer:
         # Convert to tensor for semantic density
         pooled_hidden_tensor = torch.from_numpy(pooled_hidden).to(self.device)
         semantic_density = self.compute_semantic_density(pooled_hidden_tensor)
+        
+        # Compute average metrics for predicted tokens
+        avg_rank = np.mean([p['original_metrics']['predicted_rank'] for p in predictions])
+        avg_probability = np.mean([p['original_metrics']['predicted_probability'] for p in predictions])
+        avg_entropy = np.mean([p['original_metrics']['entropy'] for p in predictions])
         
         # Pooled metrics vs ground truth
         pooled_gt_metrics = {}
@@ -647,6 +613,9 @@ class WhisperAnalyzer:
         return {
             'pooled_hidden_state': pooled_hidden.tolist(),
             'num_tokens_pooled': len(predictions),
+            'average_rank': float(avg_rank),
+            'average_probability': float(avg_probability),
+            'average_entropy': float(avg_entropy),
             'pooled_ground_truth_metrics': pooled_gt_metrics
         }
 
@@ -694,7 +663,8 @@ def collate_fn(batch):
 
 def save_results(
     results: List[Dict[str, Any]],
-    output_path: str
+    output_path: str,
+    model_path: str
 ):
     """Save results to JSON files."""
     
@@ -706,6 +676,7 @@ def save_results(
     logger.info(f"Saving main results to {output_path}")
     with open(output_path, 'w') as f:
         json.dump({
+            'model_path': model_path,
             'num_samples': len(results),
             'results': results
         }, f, indent=2)
@@ -722,9 +693,7 @@ def save_results(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Batch analysis of audio files with Whisper"
-    )
+    # Complete argument parsing (num-threads was already parsed at the top)
     parser.add_argument(
         '--input-folder',
         type=str,
@@ -746,7 +715,7 @@ def main():
     parser.add_argument(
         '--num-workers',
         type=int,
-        default=4,
+        default=20,
         help='Number of CPU workers for data loading'
     )
     parser.add_argument(
@@ -768,6 +737,7 @@ def main():
         help='Number of top predictions to save'
     )
     
+    # Re-parse all arguments (num-threads already parsed at top)
     args = parser.parse_args()
     
     # Setup
@@ -780,6 +750,7 @@ def main():
     logger.info(f"Num workers: {args.num_workers}")
     logger.info(f"Num GPUs: {args.num_gpus}")
     logger.info(f"Batch size: {args.batch_size}")
+    logger.info(f"CPU threads: {args.num_threads}")
     
     # Determine device
     if args.num_gpus > 0 and torch.cuda.is_available():
@@ -821,7 +792,7 @@ def main():
         all_results.extend(batch_results)
     
     # Save results
-    save_results(all_results, args.output_path)
+    save_results(all_results, args.output_path, args.model_path)
     
     # Summary
     logger.info("="*80)
