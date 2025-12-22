@@ -21,6 +21,8 @@ dependencies = [
     "tensorboard>=2.0.0", # Required for TensorBoard logging
     "matplotlib>=3.10.7",
     "seaborn>=0.13.2",
+    "montreal-forced-aligner>=3.3.8",
+    "praatio>=6.2.0",
 ]
 
 [tool.uv]

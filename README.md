@@ -49,6 +49,10 @@
    5.2. [Prediction with Whisper](#52-prediction-with-whisper)
 
 6. [LDL-AURIS](#6-ldl-auris)
+   
+   6.1. [Installation Montreal Forced Aligner (MFA)](#61-installation-montreal-forced-aligner-mfa)
+   
+   6.2. [Data Processing with MFA](#62-data-processing-with-mfa)
 
 7. [SLURM Processing](#7-slurm-processing)
    
@@ -59,6 +63,10 @@
    7.3. [Whisper Training](#73-whisper-training)
    
    7.4. [Whisper Prediction](#74-whisper-prediction)
+   
+   7.5. [Create Forced Alignment](#75-create-forced-alignment-forced_alignmentsbatch)
+   
+   7.6. [Extract Word Audios](#76-extract-word-audios-extract_word_audiosbatch)
 
 ## 1. Requirements
 
@@ -468,7 +476,164 @@ For detailed documentation of all metrics, see `README_whisper_metrics.md`. For 
 
 ## 6. LDL-AURIS
 
-*This section will be added in future updates.*
+### 6.1. Installation Montreal Forced Aligner (MFA)
+
+Montreal Forced Aligner (MFA) is used for forced alignment to generate word and phoneme boundaries from audio files and their transcriptions. On the HPI cluster, MFA is installed using **enroot** containers since direct pip/conda installation is not available.
+
+#### Initial Setup (One-Time)
+
+To set up MFA on your account, you need to import the Docker image and create a container. This only needs to be done once per user account.
+
+**Step 1: Import the Docker image**
+
+Run on a compute node with sufficient memory (64GB recommended):
+
+```bash
+srun -A aisc -p aisc-interactive --mem=64G --cpus-per-task=8 --time=01:00:00 --constraint=ARCH:X86 \
+  enroot import docker://mmcauliffe/montreal-forced-aligner:latest
+```
+
+This downloads and converts the Docker image to a squashfs file (`mmcauliffe+montreal-forced-aligner+latest.sqsh`, ~4.5 GB) in your current directory.
+
+**Step 2: Create the container**
+
+```bash
+srun -A aisc -p aisc-interactive --mem=32G --cpus-per-task=4 --time=00:30:00 --constraint=ARCH:X86 \
+  enroot create --name mfa mmcauliffe+montreal-forced-aligner+latest.sqsh
+```
+
+This unpacks the squashfs file into a container stored in `~/.local/share/enroot/mfa/`.
+
+**Step 3: Download acoustic models and dictionary**
+
+Use `--rw` to make changes persistent:
+
+```bash
+srun -A aisc -p aisc-interactive --mem=32G --cpus-per-task=4 --time=00:30:00 --constraint=ARCH:X86 \
+  enroot start --rw --mount $PWD:/workspace mfa \
+  bash -c "mfa model download acoustic english_mfa && mfa model download dictionary english_mfa"
+```
+
+#### Verifying the Installation
+
+```bash
+# Check MFA version
+srun -A aisc -p aisc-interactive --mem=8G --cpus-per-task=2 --time=00:10:00 --constraint=ARCH:X86 \
+  enroot start --mount $PWD:/workspace mfa mfa version
+
+# List available acoustic models
+srun -A aisc -p aisc-interactive --mem=8G --cpus-per-task=2 --time=00:10:00 --constraint=ARCH:X86 \
+  enroot start --mount $PWD:/workspace mfa mfa model list acoustic
+
+# Expected output: ['english_mfa']
+```
+
+### 6.2. Data Processing with MFA
+
+For generating word-level alignments and extracting individual word audio segments, we provide two Python scripts that use the torchaudio MMS_FA model instead of MFA's TextGrid output.
+
+#### Input Requirements
+
+Both scripts require audio files and corresponding transcription files in the same directory:
+- Audio files: `.wav` format
+- Transcription files: `.txt` format (same filename, different extension)
+- Example: `478.wav` and `478.txt` (containing just the transcription text)
+
+The transcription file should contain only the transcript text, e.g.:
+```
+Where was his horse?
+```
+
+#### Forced Alignment Script (`scripts/forced_alignment.py`)
+
+Performs GPU-accelerated forced alignment using torchaudio's MMS_FA model to generate word-level timing information stored as JSON files.
+
+**Usage:**
+```bash
+# Basic usage with defaults
+python scripts/forced_alignment.py
+
+# Custom directories
+python scripts/forced_alignment.py --input-dir data/CommonVoiceENraw --output-dir data/CommonVoiceENJSON
+
+# Process specific splits with multi-GPU support
+python scripts/forced_alignment.py --splits train test --batch-size 32 --num-gpus 4
+```
+
+**Key Arguments:**
+- `--input-dir`: Input directory with wav/txt pairs (default: `data/CommonVoiceENraw`)
+- `--output-dir`: Output directory for JSON files (default: `data/CommonVoiceENJSON`)
+- `--splits`: Splits to process (default: train test validation)
+- `--num-gpus`: Number of GPUs to use (default: 1)
+- `--batch-size`: Number of files per batch (default: 16)
+- `--skip-existing`: Skip files that already have JSON output
+
+**Output: JSON Files**
+
+The script generates JSON files with word boundaries for each audio file:
+
+**Example output (`10110.json`):**
+```json
+{
+  "file_id": "10110",
+  "original_transcript": "I really liked the film we saw last week.",
+  "normalized_transcript": "i really liked the film we saw last week",
+  "duration": 5.88,
+  "words": [
+    {"word": "i", "start": 1.1238, "end": 1.1439, "score": 0.9977},
+    {"word": "really", "start": 1.2041, "end": 1.4449, "score": 0.9496},
+    {"word": "liked", "start": 1.5051, "end": 1.7459, "score": 0.9624},
+    ...
+  ]
+}
+```
+
+#### Extract Word Audio Script (`scripts/extract_word_audio.py`)
+
+Extracts individual word audio segments from full audio files using the word boundary JSON files generated by `forced_alignment.py`.
+
+**Usage:**
+```bash
+# Basic usage with defaults
+python scripts/extract_word_audio.py
+
+# Custom directories
+python scripts/extract_word_audio.py --input-json data/CommonVoiceENJSON --input-audio data/CommonVoiceENraw --output-audio data/CommonVoiceENWords
+
+# Adjust parallelism
+python scripts/extract_word_audio.py --nworkers 32 --batch-size 200
+```
+
+**Key Arguments:**
+- `--input-json`: Directory containing word alignment JSON files (default: `data/CommonVoiceENJSON`)
+- `--input-audio`: Directory containing source audio files (default: `data/CommonVoiceENraw`)
+- `--output-audio`: Directory to write extracted word audio files (default: `data/CommonVoiceENWords`)
+- `--nworkers`: Number of parallel workers (default: 24)
+- `--batch-size`: Number of files to process per batch (default: 100)
+- `--splits`: Splits to process (default: train test validation)
+
+**Output: Individual Word Audio Files**
+
+The script creates one WAV file per word with the naming convention:
+```
+{file_id}_{word_index}_{word}.wav
+```
+
+**Example output structure:**
+```
+data/CommonVoiceENWords/
+├── train/
+│   ├── 10110_1_i.wav
+│   ├── 10110_2_really.wav
+│   ├── 10110_3_liked.wav
+│   └── ...
+├── test/
+│   └── ...
+└── validation/
+    └── ...
+```
+
+Word indices are 1-based, and apostrophes are preserved in filenames (e.g., `12345_5_don't.wav`).
 
 ## 7. SLURM Processing
 
@@ -639,3 +804,88 @@ ls results/whisper_predictions_normal/*.json 2>/dev/null | grep -v "analysis.jso
 - **Main JSON**: `mald_analysis.json` (contains model_path and all results)
 - **Individual JSONs**: One file per audio sample with detailed metrics
 - **Logs**: Stored in `logs/whisper_[model]_[JOBID].{out,err}`
+
+### 7.5. Create Forced Alignment (`forced_alignment.sbatch`)
+
+For running forced alignment on the full CommonVoice dataset using SLURM:
+
+```bash
+# Basic submission with defaults
+sbatch scripts/forced_alignment.sbatch
+
+# Process only specific splits
+sbatch scripts/forced_alignment.sbatch --splits train
+
+# Resume interrupted job (skip already processed files)
+sbatch scripts/forced_alignment.sbatch --skip-existing
+
+# Use multiple GPUs with larger batch size
+sbatch --gres=gpu:4 scripts/forced_alignment.sbatch --num-gpus 4 --batch-size 32
+```
+
+**SLURM Resource Configuration:**
+- **GPUs**: 1× GPU (configurable)
+- **CPUs**: 24 cores
+- **Memory**: 128GB
+- **Time Limit**: 72 hours
+- **Partition**: aisc-batch
+
+**Default Input/Output:**
+- **Input**: `data/CommonVoiceENraw` (audio + transcript files)
+- **Output**: `data/CommonVoiceENJSON` (JSON files with word boundaries)
+
+**Monitoring:**
+```bash
+# Check job status
+squeue -u $USER
+
+# Monitor progress
+tail -f logs/forced_alignment_[JOBID].err
+```
+
+### 7.6. Extract Word Audios (`extract_word_audio.sbatch`)
+
+For extracting individual word audio segments from aligned data using SLURM:
+
+```bash
+# Basic submission with defaults
+sbatch scripts/extract_word_audio.sbatch
+
+# Process only specific splits
+sbatch scripts/extract_word_audio.sbatch --splits train
+
+# Adjust parallelism
+sbatch scripts/extract_word_audio.sbatch --nworkers 32 --batch-size 200
+
+# Chain with forced alignment job (run after alignment completes)
+sbatch --dependency=afterok:<ALIGNMENT_JOB_ID> scripts/extract_word_audio.sbatch
+```
+
+**SLURM Resource Configuration:**
+- **CPUs**: 24 cores
+- **Memory**: 64GB
+- **Time Limit**: 24 hours
+- **Partition**: aisc-batch
+
+**Default Input/Output:**
+- **Input JSON**: `data/CommonVoiceENJSON` (word boundary JSON files)
+- **Input Audio**: `data/CommonVoiceENraw` (source audio files)
+- **Output**: `data/CommonVoiceENWords` (individual word audio files)
+
+**Output Naming Convention:**
+```
+{file_id}_{word_index}_{word}.wav
+```
+Example: `10110_2_really.wav` (word index 2, word "really" from file 10110)
+
+**Monitoring:**
+```bash
+# Check job status
+squeue -u $USER
+
+# Monitor progress
+tail -f logs/extract_word_audio_[JOBID].err
+
+# Count extracted words
+ls data/CommonVoiceENWords/train/*.wav 2>/dev/null | wc -l
+```

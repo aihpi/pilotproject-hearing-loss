@@ -69,3 +69,6 @@ htmlcov/
 
 # Github Copilot instructions (used for David's workflow)
 COPILOT_INSTRUCTIONS.md
+
+# MFA container image
+mmcauliffe+montreal-forced-aligner+latest.sqsh
