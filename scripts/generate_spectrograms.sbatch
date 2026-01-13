@@ -69,7 +69,9 @@
 #   - ~196 KB per .npy file
 # ==============================
 
-cd /sc/home/motoki.saito/pilotproject-hearing-loss
+# Navigate to project root (parent of scripts directory)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
 
 # Activate virtual environment
 source .venv/bin/activate
