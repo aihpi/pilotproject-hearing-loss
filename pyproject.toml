@@ -23,9 +23,15 @@ dependencies = [
     "seaborn>=0.13.2",
     "montreal-forced-aligner>=3.3.8",
     "praatio>=6.2.0",
+    "fasttext-wheel>=0.9.2", # FastText word embeddings
+    "pyyaml>=6.0", # YAML configuration parsing
+    "xarray>=2023.6.0", # N-dimensional labeled arrays (for S-matrix storage)
+    "fasttext>=0.9.3",
+    "discriminative-lexicon-model",
 ]
 
 [tool.uv]
 package = false  # This is a script/application project, not a library
 
 [tool.uv.sources]
+discriminative-lexicon-model = { git = "https://github.com/quantling/discriminative_lexicon_model.git" }

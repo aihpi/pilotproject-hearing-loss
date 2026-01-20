@@ -1,0 +1,32 @@
+data:
+  audio_dirs:
+    normal: /sc/projects/sci-aisc/hearingloss/data_processed/normal_raw
+    lfloss: /sc/projects/sci-aisc/hearingloss/data_processed/lfloss_raw
+    hfloss: /sc/projects/sci-aisc/hearingloss/data_processed/hfloss_raw
+  fasttext_model: data/fasttext/cc.en.300.bin
+  splits: [train, test, validation]
+
+spectrogram:
+  sampling_rate: 16000
+  n_mels: 128
+  n_fft: 400
+  hop_length: 160
+  max_time_frames: 391
+
+training:
+  learning_rate: 0.1
+  checkpoint_interval: 50000
+  metrics_interval: 1000
+  random_seed: 42
+  backend: auto  # 'numpy', 'torch', or 'auto'
+  device: cuda
+
+evaluation:
+  metrics: [cosine_similarity, pearson_correlation, mse]
+  batch_size: 1000
+
+output:
+  base_dir: results/matrices_incremental
+  checkpoints_dir: checkpoints
+  metrics_dir: metrics
+  visualizations_dir: visualizations
