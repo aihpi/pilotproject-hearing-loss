@@ -1,4 +1,4 @@
-"""Utility functions for F-matrix incremental learning pipeline."""
+"""Utility functions for F-matrix incremental learning pipeline and CV24 data loading."""
 
 from .spectrogram_utils import (
     load_and_generate_spectrogram,
@@ -14,6 +14,14 @@ from .data_utils import (
     filter_common_words,
 )
 
+from .cv24_loader import (
+    load_cv24_dataset,
+    normalize_split_name,
+    CV24Sample,
+    CV24Split,
+    CV24DatasetDict,
+)
+
 __all__ = [
     # Spectrogram utilities
     'load_and_generate_spectrogram',
@@ -25,4 +33,10 @@ __all__ = [
     'create_training_order',
     'get_audio_files',
     'filter_common_words',
+    # CV24 loader utilities
+    'load_cv24_dataset',
+    'normalize_split_name',
+    'CV24Sample',
+    'CV24Split',
+    'CV24DatasetDict',
 ]

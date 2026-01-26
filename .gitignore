@@ -47,6 +47,7 @@ uv.lock
 
 # Data files
 data/
+data*/
 cv-corpus-22.0*
 results/
 

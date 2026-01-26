@@ -18,7 +18,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import gc
 
 import numpy as np
-from datasets import load_from_disk, Dataset, DatasetDict
+from datasets import load_from_disk, Dataset, DatasetDict, concatenate_datasets
 from tqdm import tqdm
 
 # Import our audio processing module
@@ -30,6 +30,9 @@ from modules.audio import (
     get_high_frequency_loss_profile,
     validate_audio_data
 )
+
+# Import CV24 loader for Mozilla CommonVoice 24.0 format
+from utils.cv24_loader import load_cv24_dataset, normalize_split_name
 
 # Configure logging
 def setup_logging(log_level: str = "INFO") -> None:
@@ -45,49 +48,67 @@ def setup_logging(log_level: str = "INFO") -> None:
 logger = logging.getLogger(__name__)
 
 
-def load_dataset_splits(dataset_path: str) -> DatasetDict:
+def load_dataset_splits(dataset_path: str, target_splits: Optional[List[str]] = None):
     """
-    Load HuggingFace dataset from disk or cache.
-    
+    Load dataset from disk - supports both HuggingFace format and CV24 TSV+MP3 format.
+
     Args:
-        dataset_path (str): Path to the saved dataset or cache directory
-        
+        dataset_path (str): Path to the dataset directory
+        target_splits (List[str], optional): Specific splits to load
+
     Returns:
-        DatasetDict: Loaded dataset with all splits
+        Dataset dict-like object with splits (DatasetDict or CV24DatasetDict)
     """
     logger.info(f"Loading dataset from: {dataset_path}")
-    
+
     if not Path(dataset_path).exists():
         raise FileNotFoundError(f"Dataset not found: {dataset_path}")
-    
-    # Check if this is a direct dataset directory (like our processed subsets)
-    dataset_dict_path = Path(dataset_path) / "dataset_dict.json"
-    if dataset_dict_path.exists():
-        logger.info("Loading from dataset directory...")
-        dataset = load_from_disk(dataset_path)
+
+    # Check if this is a CV24 format (has clips/ directory and TSV files)
+    clips_dir = Path(dataset_path) / "clips"
+    has_tsv = any(Path(dataset_path).glob("*.tsv"))
+
+    if clips_dir.exists() and has_tsv:
+        # CV24 format: TSV metadata + MP3 files in clips/
+        logger.info("Detected CV24 format (TSV + MP3 clips)")
+
+        # Normalize split names if provided (validation -> dev)
+        if target_splits:
+            target_splits = [normalize_split_name(s) for s in target_splits]
+
+        dataset = load_cv24_dataset(
+            base_dir=dataset_path,
+            splits=target_splits,
+            target_sr=None  # Keep original SR, resample during processing
+        )
     else:
-        # This might be a CommonVoice download directory with cache
-        # Try to load using the HuggingFace datasets library
-        cache_dir = Path(dataset_path) / "cache"
-        if cache_dir.exists():
-            logger.info("Loading from HuggingFace cache directory...")
-            from datasets import load_dataset
-            dataset = load_dataset(
-                "mozilla-foundation/common_voice_16_1",
-                "en",
-                cache_dir=str(cache_dir),
-                trust_remote_code=True
-            )
-        else:
-            # Try direct loading as fallback
-            logger.info("Attempting direct dataset loading...")
+        # Try HuggingFace format
+        dataset_dict_path = Path(dataset_path) / "dataset_dict.json"
+        if dataset_dict_path.exists():
+            logger.info("Loading from HuggingFace dataset directory...")
             dataset = load_from_disk(dataset_path)
-    
+        else:
+            # Check for HuggingFace cache
+            cache_dir = Path(dataset_path) / "cache"
+            if cache_dir.exists():
+                logger.info("Loading from HuggingFace cache directory...")
+                from datasets import load_dataset
+                dataset = load_dataset(
+                    "mozilla-foundation/common_voice_16_1",
+                    "en",
+                    cache_dir=str(cache_dir),
+                    trust_remote_code=True
+                )
+            else:
+                # Try direct loading as fallback
+                logger.info("Attempting direct dataset loading...")
+                dataset = load_from_disk(dataset_path)
+
     logger.info(f"Dataset loaded successfully")
     logger.info(f"Available splits: {list(dataset.keys())}")
     for split_name, split_data in dataset.items():
         logger.info(f"  - {split_name}: {len(split_data)} samples")
-    
+
     return dataset
 
 
@@ -264,6 +285,100 @@ def worker_process_batch(args: Tuple) -> Dict[str, List[Dict[str, Any]]]:
     return process_batch(batch_data, hearing_profiles, sample_rate)
 
 
+def merge_chunks_hierarchical(chunk_dir: Path, output_path: Path, batch_size: int = 4) -> int:
+    """
+    Merge chunk files using hierarchical batching for memory efficiency.
+
+    For train split (230 chunks), this creates multiple merge levels:
+    - Level 1: 230 → 58 intermediate files (batches of 4)
+    - Level 2: 58 → 15 intermediate files
+    - Level 3: 15 → 4 intermediate files
+    - Level 4: 4 → 1 final dataset
+
+    Peak memory: ~6.4 GB per condition (4 chunks × 1.6 GB each)
+
+    Args:
+        chunk_dir: Directory containing chunk files
+        output_path: Final output path for merged dataset
+        batch_size: Number of chunks to merge at a time (default 4)
+
+    Returns:
+        Total number of samples in merged dataset
+    """
+    chunk_files = sorted(chunk_dir.glob("chunk_*.arrow"))
+    if not chunk_files:
+        return 0
+
+    logger.info(f"Merging {len(chunk_files)} chunks with batch size {batch_size}")
+
+    # Handle single chunk case
+    if len(chunk_files) == 1:
+        ds = Dataset.load_from_disk(str(chunk_files[0]))
+        ds.save_to_disk(str(output_path))
+        total_samples = len(ds)
+        shutil.rmtree(chunk_files[0])
+        try:
+            chunk_dir.rmdir()
+        except OSError:
+            pass
+        return total_samples
+
+    current_files = [str(f) for f in chunk_files]
+    level = 0
+    total_samples = 0
+
+    while len(current_files) > 1:
+        level += 1
+        next_count = (len(current_files) + batch_size - 1) // batch_size
+        logger.info(f"Merge level {level}: {len(current_files)} files → {next_count} files")
+
+        next_level_files = []
+
+        for i in range(0, len(current_files), batch_size):
+            batch_files = current_files[i:i + batch_size]
+
+            # Load this small batch
+            batch_datasets = [Dataset.load_from_disk(f) for f in batch_files]
+            batch_merged = concatenate_datasets(batch_datasets)
+
+            # Determine output path
+            if len(current_files) <= batch_size:
+                # This is the final merge - save to output
+                batch_merged.save_to_disk(str(output_path))
+                total_samples = len(batch_merged)
+                logger.info(f"Final merge complete: {total_samples} samples")
+            else:
+                # Save intermediate
+                intermediate_path = chunk_dir / f"level{level}_{i // batch_size:04d}.arrow"
+                batch_merged.save_to_disk(str(intermediate_path))
+                next_level_files.append(str(intermediate_path))
+
+            # Free memory immediately
+            del batch_datasets, batch_merged
+            gc.collect()
+
+            # Cleanup source files from previous level (not original chunks until very end)
+            if level > 1:
+                for f in batch_files:
+                    if Path(f).exists():
+                        shutil.rmtree(f)
+
+        current_files = next_level_files
+
+    # Cleanup all original chunk files
+    for chunk_file in chunk_files:
+        if chunk_file.exists():
+            shutil.rmtree(chunk_file)
+
+    # Remove empty chunk directory
+    try:
+        chunk_dir.rmdir()
+    except OSError:
+        pass  # Directory not empty, that's ok
+
+    return total_samples
+
+
 def process_split_in_batches(
     split_data: Dataset,
     output_paths: Dict[str, str],
@@ -291,9 +406,17 @@ def process_split_in_batches(
     processed_count = 0
     
     # Process in smaller chunks to manage memory
-    chunk_size = min(5000, total_samples)  # Process max 5k samples at a time to reduce memory usage
-    
+    # Reduced from 5000 to 1000 to avoid OOM during Dataset.from_list()
+    chunk_size = min(1000, total_samples)
+
     start_time = time.time()
+
+    # Create temporary chunk directories for each condition
+    chunk_dirs = {}
+    for condition in hearing_profiles.keys():
+        chunk_dir = Path(output_paths[condition]) / "chunks"
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        chunk_dirs[condition] = chunk_dir
     
     for chunk_start in range(0, total_samples, chunk_size):
         chunk_end = min(chunk_start + chunk_size, total_samples)
@@ -316,9 +439,14 @@ def process_split_in_batches(
         for i in range(chunk_start, chunk_end, batch_size):
             end_idx = min(i + batch_size, chunk_end)
             # Convert to list of individual samples
+            # For CV24Sample objects, call .copy() to convert to plain dict for multiprocessing
             batch = []
             for j in range(i, end_idx):
-                batch.append(split_data[j])
+                sample = split_data[j]
+                # Convert CV24Sample to dict if needed (for pickling in multiprocessing)
+                if hasattr(sample, 'copy') and callable(sample.copy):
+                    sample = sample.copy()
+                batch.append(sample)
             batches.append((batch, hearing_profiles, sample_rate))
         
         # Process this chunk's batches
@@ -346,32 +474,20 @@ def process_split_in_batches(
         
         processed_count += chunk_samples
         
-        # Save incrementally every few chunks to avoid memory buildup
-        if len(temp_results[list(hearing_profiles.keys())[0]]) >= 25000 or chunk_end == total_samples:
-            logger.info(f"Saving intermediate results ({len(temp_results[list(hearing_profiles.keys())[0]])} samples)")
-            
+        # Save chunk to separate file (O(chunk_size) memory, no loading existing data)
+        if len(temp_results[list(hearing_profiles.keys())[0]]) > 0:
+            chunk_idx = chunk_start // chunk_size
+            logger.info(f"Saving chunk {chunk_idx} ({len(temp_results[list(hearing_profiles.keys())[0]])} samples)")
+
             for condition, processed_samples in temp_results.items():
                 if processed_samples:
-                    output_path = output_paths[condition]
-                    
-                    # Check if we already have saved data (append mode)
-                    existing_data = []
-                    if Path(output_path).exists():
-                        try:
-                            existing_dataset = Dataset.load_from_disk(output_path)
-                            existing_data = existing_dataset.to_list()
-                            logger.debug(f"Found {len(existing_data)} existing samples for {condition}")
-                        except:
-                            logger.debug(f"Could not load existing data for {condition}, starting fresh")
-                    
-                    # Combine existing and new data
-                    all_samples = existing_data + processed_samples
-                    dataset = Dataset.from_list(all_samples)
-                    dataset.save_to_disk(output_path)
-                    logger.info(f"Saved {len(all_samples)} total samples to {output_path}")
-            
-        # Clear temporary results to free memory
-        temp_results = {condition: [] for condition in hearing_profiles.keys()}
+                    chunk_file = chunk_dirs[condition] / f"chunk_{chunk_idx:04d}.arrow"
+                    dataset = Dataset.from_list(processed_samples)
+                    dataset.save_to_disk(str(chunk_file))
+                    logger.debug(f"Saved {len(processed_samples)} samples to {chunk_file}")
+
+            # Clear temporary results to free memory (only after saving)
+            temp_results = {condition: [] for condition in hearing_profiles.keys()}
         cleanup_memory()
         
         # Additional aggressive cleanup between chunks
@@ -395,8 +511,19 @@ def process_split_in_batches(
     # Monitor memory usage
     memory_mb = monitor_memory_usage()
     if memory_mb > 0:
-        logger.debug(f"Memory usage after chunk: {memory_mb:.1f} MB")
-    
+        logger.debug(f"Memory usage after processing: {memory_mb:.1f} MB")
+
+    # Merge all chunks into final datasets (one condition at a time to keep memory bounded)
+    logger.info("Merging chunks into final datasets...")
+    for condition in hearing_profiles.keys():
+        chunk_dir = chunk_dirs[condition]
+        output_path = Path(output_paths[condition])
+        logger.info(f"Merging {condition}...")
+        sample_count = merge_chunks_hierarchical(chunk_dir, output_path, batch_size=4)
+        logger.info(f"Merged {sample_count} samples for {condition}")
+        # Force cleanup before next condition
+        gc.collect()
+
     elapsed_time = time.time() - start_time
     avg_speed = total_samples / elapsed_time
     logger.info(f"Split processing completed in {elapsed_time:.2f} seconds ({avg_speed:.1f} samples/sec)")
@@ -505,23 +632,31 @@ def process_dataset(
     logger.info(f"Batch size: {batch_size}")
     logger.info(f"Number of workers: {num_workers}")
     
-    # Load dataset
-    dataset = load_dataset_splits(input_dir)
-    
-    # Filter splits if specified
+    # Normalize split names for CV24 compatibility (validation -> dev)
     if target_splits:
-        logger.info(f"Filtering to specified splits: {target_splits}")
+        normalized_splits = [normalize_split_name(s) for s in target_splits]
+        logger.info(f"Requested splits: {target_splits} -> normalized: {normalized_splits}")
+    else:
+        normalized_splits = None
+
+    # Load dataset (pass target_splits for efficiency - only loads requested splits for CV24)
+    dataset = load_dataset_splits(input_dir, target_splits=normalized_splits)
+
+    # Filter splits if specified (for HuggingFace format which loads all splits)
+    if normalized_splits:
         available_splits = set(dataset.keys())
-        requested_splits = set(target_splits)
+        requested_splits = set(normalized_splits)
         invalid_splits = requested_splits - available_splits
-        
+
         if invalid_splits:
             logger.error(f"Invalid splits requested: {invalid_splits}")
             logger.error(f"Available splits: {available_splits}")
             return
-        
-        dataset = {split: data for split, data in dataset.items() if split in target_splits}
-        logger.info(f"Processing only splits: {list(dataset.keys())}")
+
+        # Only filter if we have more splits than requested (HuggingFace format)
+        if len(dataset.keys()) > len(normalized_splits):
+            dataset = {split: data for split, data in dataset.items() if split in normalized_splits}
+            logger.info(f"Processing only splits: {list(dataset.keys())}")
     
     # Calculate total samples for progress tracking
     total_samples = sum(len(split_data) for split_data in dataset.values())

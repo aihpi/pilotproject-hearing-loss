@@ -26,12 +26,18 @@ dependencies = [
     "fasttext-wheel>=0.9.2", # FastText word embeddings
     "pyyaml>=6.0", # YAML configuration parsing
     "xarray>=2023.6.0", # N-dimensional labeled arrays (for S-matrix storage)
-    "fasttext>=0.9.3",
-    "discriminative-lexicon-model",
+    
+    # TEMPORARILY DISABLED (2026-01-23): fasttext and discriminative-lexicon-model require
+    # Python.h headers to compile, which are not installed on any cluster compute node.
+    # These packages are only needed for Motoki's DLM training (scripts/generate_smatrix.py).
+    # To re-enable: ask sysadmin to install python3-dev, or use conda.
+    # "fasttext>=0.9.3",
+    # "discriminative-lexicon-model",
 ]
 
 [tool.uv]
 package = false  # This is a script/application project, not a library
 
-[tool.uv.sources]
-discriminative-lexicon-model = { git = "https://github.com/quantling/discriminative_lexicon_model.git" }
+# TEMPORARILY DISABLED - see note above
+# [tool.uv.sources]
+# discriminative-lexicon-model = { git = "https://github.com/quantling/discriminative_lexicon_model.git" }
