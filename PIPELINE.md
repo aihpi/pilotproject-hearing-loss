@@ -34,10 +34,10 @@ Set `HF_TOKEN` in your environment or in `.env.local` (see `.env.local.template`
 
 ---
 
-## Phase 1: Data Preparation
+## Phase 1: Data Preparation (shared)
 
-These steps are run once to prepare word-level audio files under all three
-hearing conditions.
+Steps 1-4 are shared by both the DLM and Whisper tracks. They produce
+utterance-level and word-level audio from CommonVoice.
 
 ### Step 1. Download CommonVoice
 
@@ -67,8 +67,8 @@ uv run python scripts/forced_alignment.py \
 ```
 
 - **Input**: WAV + TXT pairs from step 2
-- **Output**: `data/CommonVoiceENJSON/{cv_id}.json` with word-level time boundaries
-- Uses torchaudio MMS_FA model (not Montreal Forced Aligner). Requires GPU.
+- **Output**: `data/CommonVoiceENJSON/{split}/{cv_id}.json` with word-level time boundaries
+- Uses torchaudio MMS_FA model (not Montreal Forced Aligner). Supports CPU and GPU.
 
 ### Step 4. Extract word-level audio
 
@@ -83,7 +83,19 @@ uv run python scripts/extract_word_audio.py \
 - **Output**: `data/CommonVoiceENWords/{train,test,validation}/{word}_{instance}.wav`
 - One WAV file per word occurrence.
 
-### Step 5. Apply hearing loss masks
+After step 4, the two tracks diverge. Each track has its own masking step
+because they operate on different audio granularities:
+- **DLM track**: masks word-level audio (step 5a)
+- **Whisper track**: masks full-utterance audio as HuggingFace datasets (step 5b)
+
+---
+
+## Phase 2a: DLM Track
+
+Trains Discriminative Lexicon Model matrices that map between acoustic form
+and semantic representations. Operates on **word-level** audio.
+
+### Step 5a. Apply hearing loss masks to word audio
 
 ```bash
 uv run python scripts/apply_all_masks.py
@@ -92,13 +104,6 @@ uv run python scripts/apply_all_masks.py
 - **Input**: `data/CommonVoiceENWords/{split}/`
 - **Output**: `data/CommonVoiceENWords_masked/{normal,lfloss,hfloss}_raw/{split}/`
 - Creates three acoustically processed versions of every word audio file.
-
----
-
-## Phase 2a: DLM Track
-
-Trains Discriminative Lexicon Model matrices that map between acoustic form
-and semantic representations.
 
 ### Step 6a. Generate S-matrices
 
@@ -152,7 +157,18 @@ uv run python scripts/visualize_learning_curves.py
 
 ## Phase 2b: Whisper Track
 
-Fine-tunes OpenAI Whisper on hearing-loss-masked audio.
+Fine-tunes OpenAI Whisper on hearing-loss-masked audio. Operates on
+**full-utterance** audio stored as HuggingFace datasets.
+
+### Step 5b. Apply hearing loss masks to full utterances
+
+```bash
+uv run python scripts/mask_audio.py
+```
+
+- **Input**: `data/CommonVoiceEN/` (HuggingFace dataset)
+- **Output**: `data/CommonVoiceEN_{condition}/dataset/` (HuggingFace DatasetDict per condition)
+- Creates three condition-specific datasets with masked audio arrays.
 
 ### Step 6b. Generate log-mel spectrograms
 
@@ -165,7 +181,7 @@ uv run python scripts/DataSet2LogMel.py \
 Repeat for `lfloss` and `hfloss`, or use `DataSet2LogMelBatch.py` for parallel
 SLURM submission.
 
-- **Input**: CommonVoice dataset with masked audio
+- **Input**: HuggingFace dataset from step 5b
 - **Output**: `data/CommonVoiceEN_{condition}_logmel/` (HuggingFace DatasetDict)
 - 128 mel bins (Whisper large-v3 format).
 
@@ -217,10 +233,11 @@ parallel.
 data/
   CommonVoiceEN/                        # Step 1: raw HuggingFace cache
   CommonVoiceENraw/{split}/             # Step 2: extracted WAV + TXT
-  CommonVoiceENJSON/                    # Step 3: forced alignment JSON
+  CommonVoiceENJSON/{split}/            # Step 3: forced alignment JSON
   CommonVoiceENWords/{split}/           # Step 4: word-level audio
-  CommonVoiceENWords_masked/            # Step 5: masked word audio
+  CommonVoiceENWords_masked/            # Step 5a: masked word audio (DLM)
     {normal,lfloss,hfloss}_raw/{split}/
+  CommonVoiceEN_{condition}/dataset/    # Step 5b: masked utterances (Whisper)
   fasttext/cc.en.300.bin                # External: fastText embeddings
   smatrices/                            # Step 6a: semantic matrices
   CommonVoiceEN_{condition}_logmel/     # Step 6b: Whisper spectrograms
