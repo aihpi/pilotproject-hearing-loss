@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import queue
 import threading
 
+import soundfile as sf
 import torch
 import torch.multiprocessing as mp
 import torchaudio
@@ -104,9 +105,12 @@ def normalize_transcript(text: str) -> str:
     text = re.sub(r'\b(\d{1,2})\b', lambda m: _number_to_words(m.group(1)), text)
     
     # Keep only supported characters and spaces
+    # Hyphen maps to blank index (0) in MMS_FA dictionary, so treat it as a word separator
     result = []
     for char in text:
-        if char in MMS_FA_SUPPORTED_CHARS or char == ' ':
+        if char == '-':
+            result.append(' ')
+        elif char in MMS_FA_SUPPORTED_CHARS or char == ' ':
             result.append(char)
         elif char in '.,!?;:"""()[]{}…–—':
             result.append(' ')  # Replace punctuation with space
@@ -119,19 +123,19 @@ def normalize_transcript(text: str) -> str:
 
 def load_and_preprocess_audio(wav_path: Path) -> tuple[torch.Tensor, float]:
     """Load audio file and preprocess for MMS_FA."""
-    waveform, sample_rate = torchaudio.load(wav_path)
-    
+    data, sample_rate = sf.read(wav_path, dtype="float32")
+
+    # Convert to torch tensor — soundfile returns (samples,) for mono, (samples, channels) for stereo
+    waveform = torch.from_numpy(data)
+    if waveform.ndim == 2:
+        waveform = waveform.mean(dim=1)  # stereo to mono
+
     # Resample if needed
     if sample_rate != SAMPLE_RATE:
-        resampler = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)
-        waveform = resampler(waveform)
-    
-    # Convert to mono if needed
-    if waveform.shape[0] > 1:
-        waveform = waveform.mean(dim=0, keepdim=True)
-    
-    duration = waveform.shape[1] / SAMPLE_RATE
-    return waveform.squeeze(0), duration  # Return 1D tensor
+        waveform = torchaudio.functional.resample(waveform, sample_rate, SAMPLE_RATE)
+
+    duration = waveform.shape[0] / SAMPLE_RATE
+    return waveform, duration  # Return 1D tensor
 
 
 def align_emission(
