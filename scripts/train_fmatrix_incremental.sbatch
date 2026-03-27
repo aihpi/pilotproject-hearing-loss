@@ -39,6 +39,7 @@
 #   --resume-from-f   Resume F-matrix from checkpoint (optional)
 #   --resume-from-g   Resume G-matrix from checkpoint (optional)
 #   --auto-resume     Automatically find and resume from latest checkpoint
+#   --fmatrix-only    Train only F-matrix (skip G-matrix) - use for re-training corrupted F-matrices
 #
 # Output:
 #   - F-matrix and G-matrix checkpoints saved to results/fmatrix_incremental/checkpoints/{condition}/
@@ -50,12 +51,12 @@
 #   - With CPU (NumPy backend): ~3-7 days per condition
 # ==============================
 
-# Navigate to project root (parent of scripts directory)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/.."
+# Navigate to project root (absolute path required for SLURM)
+PROJECT_ROOT="/sc/home/motoki.saito/pilotproject-hearing-loss"
+cd "$PROJECT_ROOT"
 
 # Activate virtual environment
-source .venv/bin/activate
+source "$PROJECT_ROOT/.venv/bin/activate"
 
 echo "========================================"
 echo "F-Matrix Incremental Training Job"
@@ -97,6 +98,7 @@ LIMIT=""
 RESUME_FROM_F=""
 RESUME_FROM_G=""
 AUTO_RESUME=""
+FMATRIX_ONLY=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -128,6 +130,10 @@ while [[ $# -gt 0 ]]; do
             AUTO_RESUME="--auto-resume"
             shift
             ;;
+        --fmatrix-only)
+            FMATRIX_ONLY="--fmatrix-only"
+            shift
+            ;;
         *)
             echo "Unknown argument: $1"
             shift
@@ -157,18 +163,22 @@ fi
 if [ -n "$AUTO_RESUME" ]; then
     echo "  Auto-resume: ENABLED"
 fi
+if [ -n "$FMATRIX_ONLY" ]; then
+    echo "  F-matrix only mode: ENABLED (G-matrix will be skipped)"
+fi
 echo "========================================"
 echo ""
 
 # Run the training script
-python scripts/train_fmatrix_incremental.py \
+python "$PROJECT_ROOT/scripts/train_fmatrix_incremental.py" \
     --condition "$CONDITION" \
-    --config "$CONFIG" \
+    --config "$PROJECT_ROOT/$CONFIG" \
     --split "$SPLIT" \
     $LIMIT \
     $RESUME_FROM_F \
     $RESUME_FROM_G \
-    $AUTO_RESUME
+    $AUTO_RESUME \
+    $FMATRIX_ONLY
 
 EXIT_CODE=$?
 

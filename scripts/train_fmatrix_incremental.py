@@ -33,6 +33,7 @@ from utils import (
     flatten_spectrogram,
     extract_word_from_filename,
 )
+import pandas as pd
 
 # Configure logging
 logging.basicConfig(
@@ -40,6 +41,89 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - [%(process)d] %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def validate_matrix_checkpoint(checkpoint_path: Path, expected_shape: tuple = None) -> bool:
+    """
+    Validate that a saved checkpoint contains valid numerical data.
+
+    Args:
+        checkpoint_path: Path to the checkpoint file
+        expected_shape: Expected shape of the matrix (optional)
+
+    Returns:
+        True if valid, raises exception otherwise
+    """
+    logger.info(f"Validating checkpoint: {checkpoint_path}")
+
+    # Read the file
+    df = pd.read_csv(checkpoint_path, sep='\t', index_col=0, header=0,
+                     compression='gzip' if str(checkpoint_path).endswith('.gz') else None,
+                     nrows=10)  # Only read first 10 rows for validation
+
+    # Check dtype - should be numeric, not object (string)
+    non_numeric_cols = df.select_dtypes(include=['object']).columns
+    if len(non_numeric_cols) > 0:
+        raise ValueError(
+            f"Checkpoint {checkpoint_path} contains non-numeric data (dtype=object). "
+            f"This indicates corrupted or empty values. "
+            f"Non-numeric columns: {list(non_numeric_cols)[:5]}..."
+        )
+
+    # Check for NaN values
+    nan_count = df.isna().sum().sum()
+    if nan_count > 0:
+        logger.warning(f"Checkpoint contains {nan_count} NaN values in first 10 rows")
+
+    # Check shape if provided
+    if expected_shape is not None:
+        # Read full file to check shape
+        df_full = pd.read_csv(checkpoint_path, sep='\t', index_col=0, header=0,
+                              compression='gzip' if str(checkpoint_path).endswith('.gz') else None)
+        if df_full.shape != expected_shape:
+            raise ValueError(
+                f"Checkpoint shape {df_full.shape} does not match expected {expected_shape}"
+            )
+
+    logger.info(f"Checkpoint validation passed: dtype={df.dtypes.unique()}")
+    return True
+
+
+def validate_loaded_matrix(matrix: xr.DataArray, name: str) -> bool:
+    """
+    Validate that a loaded matrix has valid numerical data.
+
+    Args:
+        matrix: Loaded xarray DataArray
+        name: Name of the matrix (for logging)
+
+    Returns:
+        True if valid, raises exception otherwise
+    """
+    # Check dtype
+    if matrix.dtype == object:
+        raise ValueError(
+            f"Loaded {name} has dtype 'object' (strings), not numeric. "
+            f"This indicates the checkpoint file contains empty or corrupted values. "
+            f"Sample values: {matrix.values[:3, :3]}"
+        )
+
+    # Check for numeric dtype
+    if not np.issubdtype(matrix.dtype, np.number):
+        raise ValueError(
+            f"Loaded {name} has non-numeric dtype: {matrix.dtype}"
+        )
+
+    # Check for all-NaN
+    if np.all(np.isnan(matrix.values)):
+        raise ValueError(f"Loaded {name} contains all NaN values")
+
+    # Check for reasonable values (not all zeros after training)
+    if np.all(matrix.values == 0):
+        logger.warning(f"Loaded {name} contains all zeros - this may indicate no training occurred")
+
+    logger.info(f"Matrix {name} validation passed: dtype={matrix.dtype}, shape={matrix.shape}")
+    return True
 
 
 def load_config(config_path: Path) -> dict:
@@ -153,7 +237,8 @@ def create_cvector_from_audio(
     audio_path: Path,
     word: str,
     spec_params: dict,
-    n_cues: int = 50048
+    n_cues: int = 50048,
+    normalize: bool = True
 ) -> xr.DataArray:
     """
     Generate C-vector (form representation) from audio file.
@@ -163,12 +248,29 @@ def create_cvector_from_audio(
         word: Word label (for xarray coordinate)
         spec_params: Spectrogram generation parameters
         n_cues: Number of cues (flattened spectrogram dimension)
+        normalize: If True, apply min-max normalization to scale values to [0, 1].
+                   This is critical for numerical stability during incremental learning,
+                   as log-mel spectrograms have values in dB scale (-80 to 0) which
+                   can cause weight explosion when combined with small S-vector values.
 
     Returns:
         C-vector as xarray DataArray with shape (1, n_cues)
     """
     # Generate spectrogram
     spec = load_and_generate_spectrogram(audio_path, **spec_params)
+
+    # Apply min-max normalization to prevent numerical instability
+    # Log-mel spectrograms typically have values from -80 dB (silence) to 0 dB (max)
+    # Without normalization, the large C-vector values cause F-matrix weights to
+    # explode exponentially, eventually overflowing to inf/NaN after ~46 iterations
+    if normalize:
+        spec_min = spec.min()
+        spec_max = spec.max()
+        if spec_max > spec_min:
+            spec = (spec - spec_min) / (spec_max - spec_min)
+        else:
+            # Handle edge case of constant spectrogram (silence)
+            spec = np.zeros_like(spec)
 
     # Flatten to 1D vector
     c_vec = flatten_spectrogram(spec).reshape(1, -1)
@@ -260,6 +362,9 @@ def checkpoint_matrix(
     # Remove temporary uncompressed file
     temp_path.unlink()
 
+    # Validate the saved checkpoint
+    validate_matrix_checkpoint(checkpoint_path)
+
     return checkpoint_path
 
 
@@ -269,7 +374,8 @@ def track_learning_metrics(
     g_matrix: xr.DataArray,
     c_vector: xr.DataArray,
     s_vector: xr.DataArray,
-    metrics_file: Path
+    metrics_file: Path,
+    fmatrix_only: bool = False
 ) -> dict:
     """
     Compute and log learning metrics for current iteration.
@@ -277,10 +383,11 @@ def track_learning_metrics(
     Args:
         iteration: Current iteration number
         f_matrix: Current F-matrix
-        g_matrix: Current G-matrix
+        g_matrix: Current G-matrix (can be None if fmatrix_only=True)
         c_vector: Current C-vector (form input)
         s_vector: Current S-vector (semantic target)
         metrics_file: CSV file to append metrics to
+        fmatrix_only: If True, skip G-matrix metrics
 
     Returns:
         Dictionary with metrics for this iteration
@@ -299,19 +406,23 @@ def track_learning_metrics(
     else:
         cosine_sim_f = 0.0
 
-    # Compute G-matrix prediction (production: semantics -> form)
-    c_pred = s_vector @ g_matrix
-    error_g = c_vector - c_pred
-    prediction_error_g = float(np.sqrt((error_g ** 2).sum()))
+    # Compute G-matrix prediction (production: semantics -> form) - skip if fmatrix_only
+    if not fmatrix_only and g_matrix is not None:
+        c_pred = s_vector @ g_matrix
+        error_g = c_vector - c_pred
+        prediction_error_g = float(np.sqrt((error_g ** 2).sum()))
 
-    # Compute G-matrix cosine similarity
-    c_vec_norm = np.sqrt((c_vector ** 2).sum())
-    c_pred_norm = np.sqrt((c_pred ** 2).sum())
+        # Compute G-matrix cosine similarity
+        c_vec_norm = np.sqrt((c_vector ** 2).sum())
+        c_pred_norm = np.sqrt((c_pred ** 2).sum())
 
-    if c_vec_norm > 0 and c_pred_norm > 0:
-        cosine_sim_g = float((c_vector * c_pred).sum() / (c_vec_norm * c_pred_norm))
+        if c_vec_norm > 0 and c_pred_norm > 0:
+            cosine_sim_g = float((c_vector * c_pred).sum() / (c_vec_norm * c_pred_norm))
+        else:
+            cosine_sim_g = 0.0
     else:
-        cosine_sim_g = 0.0
+        prediction_error_g = None
+        cosine_sim_g = None
 
     metrics = {
         'iteration': iteration,
@@ -344,7 +455,8 @@ def incremental_train_matrices(
     s_matrix: xr.DataArray,
     output_dir: Path,
     resume_from_f: Path = None,
-    resume_from_g: Path = None
+    resume_from_g: Path = None,
+    fmatrix_only: bool = False
 ) -> tuple:
     """
     Train F-matrix and G-matrix using incremental learning for a single condition.
@@ -357,9 +469,11 @@ def incremental_train_matrices(
         output_dir: Directory to save checkpoints and metrics
         resume_from_f: Optional F-matrix checkpoint path to resume from
         resume_from_g: Optional G-matrix checkpoint path to resume from
+        fmatrix_only: If True, only train F-matrix (skip G-matrix)
 
     Returns:
         Tuple of (Final F-matrix, Final G-matrix) as xarray DataArrays
+        (G-matrix will be None if fmatrix_only=True)
     """
     # Create output directories
     checkpoint_dir = output_dir / config['output']['checkpoints_dir'] / condition
@@ -392,6 +506,7 @@ def incremental_train_matrices(
     logger.info(f"  Backend: {backend}")
     logger.info(f"  Device: {device}")
     logger.info(f"  N_cues: {n_cues}")
+    logger.info(f"  F-matrix only mode: {fmatrix_only}")
 
     # Initialize F-matrix and G-matrix
     f_matrix = None
@@ -401,7 +516,11 @@ def incremental_train_matrices(
     # Resume from checkpoints if specified
     if resume_from_f is not None:
         logger.info(f"Resuming F-matrix from checkpoint: {resume_from_f}")
+        # Validate checkpoint before loading
+        validate_matrix_checkpoint(resume_from_f)
         f_matrix = load_mat(resume_from_f)
+        # Validate loaded matrix
+        validate_loaded_matrix(f_matrix, "F-matrix")
         # Extract iteration number from filename
         import re
         match = re.search(r'iter(\d+)', resume_from_f.name)
@@ -410,7 +529,11 @@ def incremental_train_matrices(
 
     if resume_from_g is not None:
         logger.info(f"Resuming G-matrix from checkpoint: {resume_from_g}")
+        # Validate checkpoint before loading
+        validate_matrix_checkpoint(resume_from_g)
         g_matrix = load_mat(resume_from_g)
+        # Validate loaded matrix
+        validate_loaded_matrix(g_matrix, "G-matrix")
 
     # Log resume status
     total_files = len(audio_files)
@@ -456,46 +579,66 @@ def incremental_train_matrices(
                 failed_files.append((audio_file.name, f"Word not in S-matrix"))
                 continue
 
-            # Generate C-vector from audio
+            # Generate C-vector from audio (with min-max normalization)
             c_vec_xr = create_cvector_from_audio(audio_file, word, spec_params, n_cues)
 
             # Get corresponding S-vector
             s_vec_xr = s_matrix.loc[[word], :]
+
+            # Compute NLMS (Normalized Least Mean Squares) learning rate for F-matrix
+            # This prevents numerical instability with high-dimensional cue vectors.
+            # Standard LMS: delta = lr * C.T @ error
+            # NLMS: delta = (lr / ||C||^2) * C.T @ error
+            # This ensures weight updates are independent of input magnitude.
+            c_norm_sq = float((c_vec_xr ** 2).sum())
+            epsilon = 1e-8  # Prevent division by zero
+            f_learning_rate = learning_rate / (c_norm_sq + epsilon)
 
             # Update F-matrix (comprehension: form -> semantics)
             f_matrix = incremental_learning(
                 rows=[word],
                 cue_matrix=c_vec_xr,
                 out_matrix=s_vec_xr,
-                learning_rate=learning_rate,
+                learning_rate=f_learning_rate,
                 weight_matrix=f_matrix,
                 return_intermediate_weights=False
             )
 
-            # Update G-matrix (production: semantics -> form)
-            g_matrix = incremental_learning(
-                rows=[word],
-                cue_matrix=s_vec_xr,
-                out_matrix=c_vec_xr,
-                learning_rate=learning_rate,
-                weight_matrix=g_matrix,
-                return_intermediate_weights=False
-            )
+            # Update G-matrix (production: semantics -> form) - skip if fmatrix_only mode
+            if not fmatrix_only:
+                # Compute NLMS learning rate for G-matrix (for consistency)
+                s_norm_sq = float((s_vec_xr ** 2).sum())
+                g_learning_rate = learning_rate / (s_norm_sq + epsilon)
+
+                g_matrix = incremental_learning(
+                    rows=[word],
+                    cue_matrix=s_vec_xr,
+                    out_matrix=c_vec_xr,
+                    learning_rate=g_learning_rate,
+                    weight_matrix=g_matrix,
+                    return_intermediate_weights=False
+                )
 
             # Checkpoint periodically
             if (i + 1) % checkpoint_interval == 0:
                 checkpoint_matrix(f_matrix, 'fmatrix', condition, i + 1, checkpoint_dir)
-                checkpoint_matrix(g_matrix, 'gmatrix', condition, i + 1, checkpoint_dir)
+                if not fmatrix_only:
+                    checkpoint_matrix(g_matrix, 'gmatrix', condition, i + 1, checkpoint_dir)
 
             # Track metrics periodically
             if (i + 1) % metrics_interval == 0:
-                metrics = track_learning_metrics(i + 1, f_matrix, g_matrix, c_vec_xr, s_vec_xr, metrics_file)
-                progress_bar.set_postfix({
+                metrics = track_learning_metrics(
+                    i + 1, f_matrix, g_matrix, c_vec_xr, s_vec_xr, metrics_file,
+                    fmatrix_only=fmatrix_only
+                )
+                postfix = {
                     'f_err': f"{metrics['f_prediction_error']:.4f}",
                     'f_cos': f"{metrics['f_cosine_similarity']:.4f}",
-                    'g_err': f"{metrics['g_prediction_error']:.4f}",
-                    'g_cos': f"{metrics['g_cosine_similarity']:.4f}"
-                })
+                }
+                if not fmatrix_only:
+                    postfix['g_err'] = f"{metrics['g_prediction_error']:.4f}"
+                    postfix['g_cos'] = f"{metrics['g_cosine_similarity']:.4f}"
+                progress_bar.set_postfix(postfix)
 
         except Exception as e:
             logger.error(f"Failed to process {audio_file.name}: {e}")
@@ -506,9 +649,10 @@ def incremental_train_matrices(
 
     # Save final F-matrix and G-matrix
     final_checkpoint_f = checkpoint_matrix(f_matrix, 'fmatrix', condition, len(audio_files), checkpoint_dir)
-    final_checkpoint_g = checkpoint_matrix(g_matrix, 'gmatrix', condition, len(audio_files), checkpoint_dir)
     logger.info(f"Final F-matrix saved to {final_checkpoint_f}")
-    logger.info(f"Final G-matrix saved to {final_checkpoint_g}")
+    if not fmatrix_only:
+        final_checkpoint_g = checkpoint_matrix(g_matrix, 'gmatrix', condition, len(audio_files), checkpoint_dir)
+        logger.info(f"Final G-matrix saved to {final_checkpoint_g}")
 
     # Save failed files log
     if failed_files:
@@ -573,6 +717,11 @@ def main():
         '--auto-resume',
         action='store_true',
         help='Automatically find and resume from the latest checkpoint'
+    )
+    parser.add_argument(
+        '--fmatrix-only',
+        action='store_true',
+        help='Train only F-matrix (skip G-matrix training). Use this to re-train corrupted F-matrices.'
     )
 
     args = parser.parse_args()
@@ -645,13 +794,18 @@ def main():
                         sys.exit(1)
 
     logger.info("=" * 60)
-    logger.info("F-Matrix and G-Matrix Incremental Training")
+    if args.fmatrix_only:
+        logger.info("F-Matrix Only Incremental Training")
+    else:
+        logger.info("F-Matrix and G-Matrix Incremental Training")
     logger.info("=" * 60)
     logger.info(f"Condition: {args.condition}")
     logger.info(f"Split: {args.split}")
     logger.info(f"Audio directory: {audio_dir}")
     logger.info(f"S-matrix: {smatrix_path}")
     logger.info(f"Output directory: {output_dir}")
+    if args.fmatrix_only:
+        logger.info("F-matrix only mode: ENABLED (G-matrix will be skipped)")
     if args.limit is not None:
         logger.info(f"Limit: {args.limit} files (TESTING MODE)")
     if resume_from_f is not None:
@@ -678,7 +832,10 @@ def main():
     audio_files = create_training_order(audio_files, seed=config['training']['random_seed'])
 
     # Train F-matrix and G-matrix
-    logger.info("Starting incremental training...")
+    if args.fmatrix_only:
+        logger.info("Starting F-matrix only training (G-matrix will be skipped)...")
+    else:
+        logger.info("Starting incremental training...")
     f_matrix, g_matrix = incremental_train_matrices(
         condition=args.condition,
         config=config,
@@ -686,13 +843,17 @@ def main():
         s_matrix=s_matrix,
         output_dir=output_dir,
         resume_from_f=resume_from_f,
-        resume_from_g=resume_from_g
+        resume_from_g=resume_from_g,
+        fmatrix_only=args.fmatrix_only
     )
 
     logger.info("=" * 60)
     logger.info("Training complete!")
     logger.info(f"F-matrix shape: {f_matrix.shape}")
-    logger.info(f"G-matrix shape: {g_matrix.shape}")
+    if g_matrix is not None:
+        logger.info(f"G-matrix shape: {g_matrix.shape}")
+    else:
+        logger.info("G-matrix: Not trained (fmatrix_only mode)")
     logger.info(f"Output directory: {output_dir}")
     logger.info("=" * 60)
 
